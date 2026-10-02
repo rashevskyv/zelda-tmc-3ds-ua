@@ -31,6 +31,13 @@ bool Port_Config_BottomRgb565(void);
 bool Port_Config_FrameLog(void);
 
 static C3D_RenderTarget* sTopTarget;
+/* Stereoscopic 3D: the right eye of the top screen, and the eye the top-screen
+ * painters are drawing right now (sTopTarget except while the right eye is
+ * being painted). The right eye is drawn only while the 3D slider is up, so
+ * 2D costs nothing extra. */
+static C3D_RenderTarget* sTopTargetRight;
+static C3D_RenderTarget* sTopDraw;
+static float sStereoDepth;
 static C3D_RenderTarget* sBottomTarget;
 static C3D_Tex sUpdateTexture;
 static uint32_t* sUpdatePixels;
@@ -253,7 +260,9 @@ bool PlatformGpu3DS_Init(bool old3dsProfile) {
     GSPGPU_FlushDataCache(sTopUpload, topBytes);
     GSPGPU_FlushDataCache(sBottomUploads[0], bottomBytes);
     GSPGPU_FlushDataCache(sBottomUploads[1], bottomBytes);
-    if (!C3D_Init(old3dsProfile ? PPU_GPU3DS_COMMAND_BUFFER_BYTES : C3D_DEFAULT_CMDBUF_SIZE))
+    /* Both models may run the PICA200 PPU (New 3DS while the 3D slider is up),
+     * and a stereo frame submits its batch list twice. */
+    if (!C3D_Init(2 * PPU_GPU3DS_COMMAND_BUFFER_BYTES))
         goto fail_linear;
     if (!C2D_Init(128)) {
         C3D_Fini();
@@ -326,6 +335,13 @@ bool PlatformGpu3DS_Init(bool old3dsProfile) {
                        GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO);
     C3D_RenderTargetSetOutput(sTopTarget, GFX_TOP, GFX_LEFT, output);
     C3D_RenderTargetSetOutput(sBottomTarget, GFX_BOTTOM, GFX_LEFT, output);
+    sTopDraw = sTopTarget;
+    /* Optional: without it the top screen stays flat. */
+    sTopTargetRight = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+    if (sTopTargetRight) {
+        C3D_RenderTargetSetOutput(sTopTargetRight, GFX_TOP, GFX_RIGHT, output);
+        gfxSet3D(true);
+    }
     sReady = true;
     return true;
 
@@ -387,14 +403,17 @@ static void DrawTopImage(const uint32_t* pixels, unsigned width, unsigned height
 
     const size_t topFlushBytes =
         (size_t)sUploadLayout.topPitch * sTopPresentHeight * sizeof(uint32_t);
-    Platform3DS_CleanDataCache(pixels, topFlushBytes);
-    /* Old 3DS only: the CPU renderer publishes 160 rows. Describe that exact
-     * source rectangle so the display engine does not read another 96 unused
-     * RGBA rows. New 3DS retains the established transfer dimensions. */
-    const unsigned sourceHeight = sOld3DSProfile ? sUploadLayout.topRows : TOP_TEXTURE_HEIGHT;
-    C3D_SyncDisplayTransfer((u32*)pixels, GX_BUFFER_DIM(sUploadLayout.topPitch, sourceHeight),
-                            (u32*)sTopTexture.data, GX_BUFFER_DIM(TOP_TEXTURE_WIDTH, TOP_TEXTURE_HEIGHT),
-                            TextureTransfer());
+    /* The right eye of a flat frame repaints the texture the left eye uploaded. */
+    if (sTopDraw == sTopTarget) {
+        Platform3DS_CleanDataCache(pixels, topFlushBytes);
+        /* Old 3DS only: the CPU renderer publishes 160 rows. Describe that exact
+         * source rectangle so the display engine does not read another 96 unused
+         * RGBA rows. New 3DS retains the established transfer dimensions. */
+        const unsigned sourceHeight = sOld3DSProfile ? sUploadLayout.topRows : TOP_TEXTURE_HEIGHT;
+        C3D_SyncDisplayTransfer((u32*)pixels, GX_BUFFER_DIM(sUploadLayout.topPitch, sourceHeight),
+                                (u32*)sTopTexture.data, GX_BUFFER_DIM(TOP_TEXTURE_WIDTH, TOP_TEXTURE_HEIGHT),
+                                TextureTransfer());
+    }
     sTopSubtexture = (Tex3DS_SubTexture){
         .width = (u16)presentation->sourceWidth,
         .height = (u16)presentation->sourceHeight,
@@ -409,7 +428,7 @@ static void DrawTopImage(const uint32_t* pixels, unsigned width, unsigned height
                  .w = (float)plan.drawWidth, .h = (float)plan.drawHeight },
         .center = { 0.0f, 0.0f }, .depth = 0.0f, .angle = 0.0f,
     };
-    C2D_TargetClear(sTopTarget, C2D_Color32(0, 0, 0, 255));
+    C2D_TargetClear(sTopDraw, C2D_Color32(0, 0, 0, 255));
     const unsigned intermediateScale = (unsigned)plan.sharpBilinearScale;
     const bool validSharpBilinearScale = intermediateScale == 2u;
     const unsigned intermediateWidth = validSharpBilinearScale
@@ -509,7 +528,7 @@ static void DrawTopImage(const uint32_t* pixels, unsigned width, unsigned height
         };
         /* SceneBegin flushes the complete overwrite batch before changing
          * blend state for the physical-target batch. */
-        C2D_SceneBegin(sTopTarget);
+        C2D_SceneBegin(sTopDraw);
         ConfigureStandardAlphaBlend();
         C3D_TexSetFilter(&sSharpBilinearTexture, GPU_LINEAR, GPU_LINEAR);
         C2D_DrawImage(intermediateImage, &params, NULL);
@@ -519,7 +538,7 @@ static void DrawTopImage(const uint32_t* pixels, unsigned width, unsigned height
         const GPU_TEXTURE_FILTER_PARAM filter =
             (plan.linearFilter || plan.useSharpBilinear) ? GPU_LINEAR : GPU_NEAREST;
         C3D_TexSetFilter(&sTopTexture, filter, filter);
-        C2D_SceneBegin(sTopTarget);
+        C2D_SceneBegin(sTopDraw);
         ConfigureStandardAlphaBlend();
         C2D_DrawImage(image, &params, NULL);
         ConfigureAbgrTextureEnv();
@@ -651,7 +670,7 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
     /* Keep the clear as the render-to-texture submission boundary between
      * the PICA200 PPU target and its physical-screen sampling pass. */
     if (sTopClearFrames != 0) --sTopClearFrames;
-    C2D_TargetClear(sTopTarget, C2D_Color32(0, 0, 0, 255));
+    C2D_TargetClear(sTopDraw, C2D_Color32(0, 0, 0, 255));
     const unsigned intermediateScale = (unsigned)plan.sharpBilinearScale;
     const unsigned intermediateWidth =
         intermediateScale == 2u ? (unsigned)presentation->sourceWidth * 2u : 0u;
@@ -752,7 +771,7 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
             .tex = &sSharpBilinearTexture,
             .subtex = &sSharpBilinearSubtexture,
         };
-        C2D_SceneBegin(sTopTarget);
+        C2D_SceneBegin(sTopDraw);
         ConfigureStandardAlphaBlend();
         ConfigureIdentityTextureEnv();
         C3D_TexSetFilter(&sSharpBilinearTexture, GPU_LINEAR, GPU_LINEAR);
@@ -764,7 +783,7 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
         const GPU_TEXTURE_FILTER_PARAM filter =
             (plan.linearFilter || plan.useSharpBilinear) ? GPU_LINEAR : GPU_NEAREST;
         C3D_TexSetFilter(texture, filter, filter);
-        C2D_SceneBegin(sTopTarget);
+        C2D_SceneBegin(sTopDraw);
         ConfigureStandardAlphaBlend();
         if (Port_Config_GpuStaticQuad() && sPresentQuad &&
             PortPpuGpu3DS_BindPresentShader()) {
@@ -789,7 +808,7 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
             C3D_CullFace(GPU_CULL_NONE);
             C3D_DrawArrays(GPU_TRIANGLE_STRIP, 0, 4);
             C2D_Prepare();
-            C2D_SceneBegin(sTopTarget);
+            C2D_SceneBegin(sTopDraw);
         } else {
             ConfigureIdentityTextureEnv();
             C2D_DrawImage(image, &params, NULL);
@@ -833,8 +852,16 @@ void PlatformGpu3DS_BeginTop(const uint32_t* pixels, unsigned width, unsigned he
         return;
     }
     sFrameActive = true;
+    sStereoDepth = PlatformGpu3DS_StereoDepth();
     DrawTopImage(pixels, width, height, validSourceWidth, validSourceHeight,
                  mode, cropX, cropY);
+    if (sStereoDepth > 0.0f) {
+        /* No layers in a CPU-rendered frame: both eyes see the same image. */
+        sTopDraw = sTopTargetRight;
+        DrawTopImage(pixels, width, height, validSourceWidth, validSourceHeight,
+                     mode, cropX, cropY);
+        sTopDraw = sTopTarget;
+    }
     ++sStats.topTransfers;
 }
 
@@ -878,13 +905,27 @@ bool PlatformGpu3DS_BeginCustomTop(void) {
         return false;
     }
     sFrameActive = true;
+    sStereoDepth = PlatformGpu3DS_StereoDepth();
     return true;
 }
 
 void PlatformGpu3DS_DrawTopTexture(void* texturePointer, unsigned width) {
-    C3D_Tex* texture = texturePointer;
-    if (!sFrameActive || !texture) return;
-    DrawTopTexture(texture, width, false);
+    PlatformGpu3DS_DrawTopTextureStereo(texturePointer, NULL, width);
+}
+
+void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, unsigned width) {
+    C3D_Tex* left = leftPointer;
+    if (!sFrameActive || !left) return;
+    DrawTopTexture(left, width, false);
+    if (sStereoDepth > 0.0f) {
+        sTopDraw = sTopTargetRight;
+        DrawTopTexture(rightPointer ? (C3D_Tex*)rightPointer : left, width, false);
+        sTopDraw = sTopTarget;
+    }
+}
+
+float PlatformGpu3DS_StereoDepth(void) {
+    return sReady && sTopTargetRight ? osGet3DSliderState() : 0.0f;
 }
 
 bool PlatformGpu3DS_QueueRgba5551Readback(void* texturePointer, uint16_t* pixels) {
@@ -940,13 +981,16 @@ static void DrawUpdateTop(void) {
     }
     C2D_Prepare();
     C3D_SetScissor(GPU_SCISSOR_DISABLE,0,0,0,0);
-    C2D_TargetClear(sTopTarget,C2D_Color32(0,0,0,255));
-    C2D_SceneBegin(sTopTarget);
     Tex3DS_SubTexture sub={.width=400,.height=240,.left=0,.top=1,
         .right=400.f/TOP_TEXTURE_WIDTH,.bottom=1-240.f/TOP_TEXTURE_HEIGHT};
     C2D_Image image={.tex=&sUpdateTexture,.subtex=&sub};
-    C2D_DrawImageAt(image,0,0,0,NULL,1,1);
-    ConfigureAbgrTextureEnv();
+    for (int eye = 0; eye < (sStereoDepth > 0.0f ? 2 : 1); ++eye) {
+        C3D_RenderTarget* target = eye ? sTopTargetRight : sTopTarget;
+        C2D_TargetClear(target,C2D_Color32(0,0,0,255));
+        C2D_SceneBegin(target);
+        C2D_DrawImageAt(image,0,0,0,NULL,1,1);
+        ConfigureAbgrTextureEnv();
+    }
     PlatformGpu3DS_InvalidateTopBorder();
 }
 
@@ -1030,24 +1074,29 @@ void PlatformGpu3DS_ShowDumpSavedOverlay(void* currentTopTexture) {
     /* This frame paints outside the usual layout. */
     PlatformGpu3DS_InvalidateTopBorder();
     sFrameActive = true;
-    /* The CPU upload is intentionally stale while PICA renders the game.
-     * Re-present the live output texture so saving a dump never flashes an
-     * older CPU/parity frame. */
-    if (currentTopTexture)
-        DrawTopTexture((C3D_Tex*)currentTopTexture, sTopPresentWidth, false);
-    else
-        DrawTopImage(sTopUpload, sTopPresentWidth, sTopPresentHeight,
-                     sTopValidSourceWidth, sTopValidSourceHeight,
-                     sTopPresentMode, sTopCropX, sTopCropY);
+    sStereoDepth = PlatformGpu3DS_StereoDepth();
+    for (int eye = 0; eye < (sStereoDepth > 0.0f ? 2 : 1); ++eye) {
+        sTopDraw = eye ? sTopTargetRight : sTopTarget;
+        /* The CPU upload is intentionally stale while PICA renders the game.
+         * Re-present the live output texture so saving a dump never flashes an
+         * older CPU/parity frame. */
+        if (currentTopTexture)
+            DrawTopTexture((C3D_Tex*)currentTopTexture, sTopPresentWidth, false);
+        else
+            DrawTopImage(sTopUpload, sTopPresentWidth, sTopPresentHeight,
+                         sTopValidSourceWidth, sTopValidSourceHeight,
+                         sTopPresentMode, sTopCropX, sTopCropY);
 
-    /* Start a clean overlay batch. PICA scissor/blend state is global and a
-     * leaked scanline clip was what truncated the end of this label. */
-    C2D_Prepare();
-    C2D_SceneBegin(sTopTarget);
-    C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
-    ConfigureStandardAlphaBlend();
-    C2D_DrawRectSolid(124.0f, 12.0f, 0.7f, 152.0f, 24.0f, C2D_Color32(0, 0, 0, 220));
-    DrawStatusText(141.0f, 17.0f, 2.0f, "DUMP SAVED");
+        /* Start a clean overlay batch. PICA scissor/blend state is global and a
+         * leaked scanline clip was what truncated the end of this label. */
+        C2D_Prepare();
+        C2D_SceneBegin(sTopDraw);
+        C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+        ConfigureStandardAlphaBlend();
+        C2D_DrawRectSolid(124.0f, 12.0f, 0.7f, 152.0f, 24.0f, C2D_Color32(0, 0, 0, 220));
+        DrawStatusText(141.0f, 17.0f, 2.0f, "DUMP SAVED");
+    }
+    sTopDraw = sTopTarget;
 
     sBottomSubtexture = (Tex3DS_SubTexture){
         .width = 320, .height = 240, .left = 0.0f, .top = 1.0f,
@@ -1101,6 +1150,8 @@ void PlatformGpu3DS_Shutdown(void) {
     if (!aptShouldClose()) C3D_FrameSync();
     C3D_RenderTargetDelete(sBottomTarget);
     C3D_RenderTargetDelete(sTopTarget);
+    if (sTopTargetRight) C3D_RenderTargetDelete(sTopTargetRight);
+    sTopTargetRight = NULL;
     if (sSharpBilinearTarget) C3D_RenderTargetDelete(sSharpBilinearTarget);
     if (sStats.sharpBilinearAvailable) C3D_TexDelete(&sSharpBilinearTexture);
     C3D_TexDelete(&sBottomTexture);

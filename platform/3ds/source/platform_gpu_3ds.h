@@ -76,6 +76,10 @@ bool PlatformGpu3DS_BeginCustomTop(void);
 /* Repaint the black borders around the game image on the next few frames. */
 void PlatformGpu3DS_InvalidateTopBorder(void);
 void PlatformGpu3DS_DrawTopTexture(void* texture, unsigned width);
+/* Stereoscopic 3D: right may be NULL (both eyes then see left). */
+void PlatformGpu3DS_DrawTopTextureStereo(void* left, void* right, unsigned width);
+/* 3D slider position, 0..1; 0 when the right eye is unavailable. */
+float PlatformGpu3DS_StereoDepth(void);
 bool PlatformGpu3DS_QueueRgba5551Readback(void* texture, uint16_t* pixels);
 /* Returns true only when a Citro3D frame was active and submitted. */
 bool PlatformGpu3DS_EndBottom(const uint32_t* pixels, bool changed);

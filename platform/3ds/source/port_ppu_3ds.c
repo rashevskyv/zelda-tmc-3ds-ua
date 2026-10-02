@@ -961,8 +961,9 @@ void Port_PPU_Init(SDL_Window* window) {
     sTopValidSourceHeight = GBA_H;
     sGpuPresenterReady = PlatformGpu3DS_Init(old3dsProfile);
     sGpuPpuDisabled = false;
-    sGpuPpuInitialized =
-        old3dsProfile && sGpuPresenterReady && PortPpuGpu3DS_Init();
+    /* New 3DS renders on the CPU, but switches to the PICA200 PPU while the
+     * 3D slider is up: only it draws the layers apart for the two eyes. */
+    sGpuPpuInitialized = sGpuPresenterReady && PortPpuGpu3DS_Init();
     sTopUpload = PlatformGpu3DS_TopBuffer();
     sBottomUploads[0] = PlatformGpu3DS_BottomBuffer(0);
     sBottomUploads[1] = PlatformGpu3DS_BottomBuffer(1);
@@ -1036,8 +1037,8 @@ void Port_PPU_PresentFrame(void) {
     bool gpuReady = false;
     sGpuSnapshotValid = false;
     if (Port_Config_GpuRenderer() &&
-        PpuGpu3DS_ShouldUse(Platform3DS_IsNew3DS(), sGpuPpuInitialized,
-                            sGpuPpuDisabled)) {
+        PpuGpu3DS_ShouldUse(Platform3DS_IsNew3DS() && PlatformGpu3DS_StereoDepth() <= 0.0f,
+                            sGpuPpuInitialized, sGpuPpuDisabled)) {
         parityFrame = PortPpuGpu3DS_ParityRequested();
         if (parityFrame) {
             Platform3DS_MarkFrameDiscontinuity(
@@ -1153,7 +1154,7 @@ void Port_PPU_PresentFrame(void) {
          * more likely to fail too. Not presenting at all is an ordinary dropped
          * frame: the screen simply holds for one frame and the GPU catches up. */
         ++sGpuBusyFrameDrops;
-    } else if (!PortPpuGpu3DS_DrawPrepared()) {
+    } else if (!PortPpuGpu3DS_DrawPreparedStereo(PlatformGpu3DS_StereoDepth())) {
         /* A draw that genuinely failed is a different matter and still retires
          * the path. */
         PortPpuGpu3DS_Disable();
@@ -1162,8 +1163,9 @@ void Port_PPU_PresentFrame(void) {
         const uint64_t drawEndTick = Platform3DS_SystemTick();
         sTopDrawTicks += drawEndTick - renderEndTick;
         Platform3DS_SetStage(8);
-        PlatformGpu3DS_DrawTopTexture(PortPpuGpu3DS_OutputTexture(),
-                                      (unsigned)sTopPresentWidth);
+        PlatformGpu3DS_DrawTopTextureStereo(PortPpuGpu3DS_OutputTexture(),
+                                            PortPpuGpu3DS_OutputTextureRight(),
+                                            (unsigned)sTopPresentWidth);
         Platform3DS_SetStage(9);
         sTopBlitTicks += Platform3DS_SystemTick() - drawEndTick;
         if (parityFrame && !PortPpuGpu3DS_QueueParityCopy()) {
