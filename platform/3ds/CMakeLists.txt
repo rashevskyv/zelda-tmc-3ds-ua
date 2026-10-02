@@ -196,7 +196,9 @@ configure_file(
 set(TMC_SMDH "${CMAKE_CURRENT_BINARY_DIR}/tmc-3ds.smdh")
 ctr_generate_smdh(
     OUTPUT "${TMC_SMDH}"
-    NAME "The Minish Cap 3DS v${TMC_3DS_VERSION}"
+    # ua-release: TMC3DS_TITLE_TAG (e.g. " TEST") marks local test builds in the
+    # Homebrew Launcher / HOME Menu title.
+    NAME "The Minish Cap 3DS v${TMC_3DS_VERSION}$ENV{TMC3DS_TITLE_TAG}"
     DESCRIPTION "Native Nintendo 3DS port"
     AUTHOR "Esteban PDN / Project Picori / samyost1"
     ICON "${CMAKE_CURRENT_LIST_DIR}/assets/icon-48.png"
