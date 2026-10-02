@@ -604,6 +604,21 @@ static void PollInput(void) {
     hidScanInput();
     sHeld = hidKeysHeld();
     sDown = hidKeysDown();
+    if (Port_SecondScreen_3DS_ChangelogOpen()) {
+        /* ua-release: an open changelog takes the D-pad: up/down scroll a
+         * line, left/right a page; a held key repeats after ~1/3 s. */
+        static unsigned repeat;
+        const u32 dpad = KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT;
+        const u32 dir = sHeld & dpad;
+        if (!dir) repeat = 0;
+        if ((sDown & dpad) || (dir && ++repeat > 20 && repeat % 4 == 0)) {
+            const int page = PORT_3DS_CHANGELOG_PAGE_LINES;
+            Port_SecondScreen_3DS_ScrollChangelog((dir & KEY_DUP) ? -1 : (dir & KEY_DDOWN) ? 1 :
+                                                  (dir & KEY_DLEFT) ? -page : page);
+        }
+        sHeld &= ~dpad;
+        sDown &= ~dpad;
+    }
     hidCircleRead(&sCirclePosition);
     if (sIsNew3DS) {
         hidCstickRead(&sCStickPosition);

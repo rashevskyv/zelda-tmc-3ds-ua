@@ -6,7 +6,10 @@
 #include <ctype.h>
 
 static bool sUpdateConfirm, sUpdateNotes;
-static unsigned sUpdatePage, sUpdatePages = 1;
+/* ua-release: the changelog scrolls by line; sUpdatePage is the first visible
+ * line and sUpdatePages the largest first line (see Port_SecondScreen_3DS_UpdateKeys). */
+#define UPDATE_VISIBLE_LINES PORT_3DS_CHANGELOG_PAGE_LINES
+static unsigned sUpdatePage, sUpdatePages = 0;
 
 static void UpdateUI_Reset(void) {
     UI_LOCK();
@@ -143,9 +146,11 @@ static bool HandleUpdateTap(int action, int arg) {
             if (st.version[0]) { UI_LOCK(); sUpdateNotes = true; sUpdatePage = 0; UI_UNLOCK(); }
             break;
         case SS_ACT_UPDATE_PREV:
-            UI_LOCK(); if (sUpdatePage) --sUpdatePage; UI_UNLOCK(); break;
+            UI_LOCK(); sUpdatePage = sUpdatePage > UPDATE_VISIBLE_LINES ? sUpdatePage - UPDATE_VISIBLE_LINES : 0;
+            UI_UNLOCK(); break;
         case SS_ACT_UPDATE_NEXT:
-            UI_LOCK(); if (sUpdatePage+1 < sUpdatePages) ++sUpdatePage; UI_UNLOCK(); break;
+            UI_LOCK(); sUpdatePage = sUpdatePage + UPDATE_VISIBLE_LINES < sUpdatePages ?
+                sUpdatePage + UPDATE_VISIBLE_LINES : sUpdatePages; UI_UNLOCK(); break;
         default: return true;
     }
     return true;
@@ -190,9 +195,11 @@ bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
         }
         revision=st.revision; lastNotes=notes;
     }
-    unsigned pages = (count+8)/9; if (!pages) pages=1;
-    if (page>=pages) page=pages-1;
-    UI_LOCK(); sUpdatePages=pages; sUpdatePage=page; UI_UNLOCK();
+    const unsigned maxTop = count > UPDATE_VISIBLE_LINES ? count - UPDATE_VISIBLE_LINES : 0;
+    if (page>maxTop) page=maxTop;
+    UI_LOCK(); sUpdatePages=maxTop; sUpdatePage=page; UI_UNLOCK();
+    unsigned pages = (count+UPDATE_VISIBLE_LINES-1)/UPDATE_VISIBLE_LINES; if (!pages) pages=1;
+    const unsigned shownPage = page >= maxTop ? pages : page/UPDATE_VISIBLE_LINES+1;
     SSurf s={pixels,400,240,stride};
     Port_SecondScreenTheme_DrawBackdrop(pixels,400,240,stride,0,0,400,240,2);
     Port_SecondScreenTheme_DrawPlate(pixels,400,240,stride,4,4,392,232,2);
@@ -200,9 +207,17 @@ bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
     for(char* c=title;*c;++c) *c=(char)toupper((unsigned char)*c);
     DrawPanelHeaderChip(&s,200,14,title,1,1.0f/3);
     Port_SecondScreenTheme_DrawWell(pixels,400,240,stride,17,47,366,165,1);
-    for (unsigned i=page*9;i<count && i<(page+1)*9;i++)
-        UpdateBodyText(&s,lines[i],23,49+(i-page*9)*18,SS_TEXT_INK,UpdateUaNotesFont(notes)); /* tloz-tmc-ua */
-    char footer[64]; snprintf(footer,sizeof(footer),"PAGE %u OF %u",page+1,pages);
+    for (unsigned i=page;i<count && i<page+UPDATE_VISIBLE_LINES;i++)
+        UpdateBodyText(&s,lines[i],23,49+(i-page)*18,SS_TEXT_INK,UpdateUaNotesFont(notes)); /* tloz-tmc-ua */
+    if (maxTop) {
+        /* Scroll bar at the well's right edge, clear of the 354 px text column. */
+        const int trackY0=50, trackY1=208, trackH=trackY1-trackY0;
+        int thumbH = trackH*UPDATE_VISIBLE_LINES/(int)count; if (thumbH<10) thumbH=10;
+        const int thumbY = trackY0 + (trackH-thumbH)*(int)page/(int)maxTop;
+        FillRect(&s,378,trackY0,381,trackY1,Port_SecondScreenTheme_Color(SSC_MENU_STONE));
+        FillRect(&s,377,thumbY,382,thumbY+thumbH,Port_SecondScreenTheme_Color(SSC_BANNER_NAVY));
+    }
+    char footer[64]; snprintf(footer,sizeof(footer),"PAGE %u OF %u",shownPage,pages);
     const int footerW=UpdateTextWidth(footer)+24;
     const int footerY=211, footerH=24;
     DrawMenuButton(&s,200-footerW/2,footerY,200+(footerW+1)/2,footerY+footerH,"",0,0,1.f/3,1);
@@ -211,4 +226,18 @@ bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
     UpdateSmallText(&s,footer,200-UpdateTextWidth(footer)/2,
                     footerY+(footerH-13)/2-2,SS_TEXT_NAVY);
     return true;
+}
+
+/* ua-release: D-pad scrolling of the open changelog (driven by platform_3ds.c
+ * PollInput, which owns the key codes and the hold-to-repeat timing). */
+bool Port_SecondScreen_3DS_ChangelogOpen(void) {
+    if (!Port_SecondScreen_3DS_UpdateOpen()) return false;
+    UI_LOCK(); bool open = sUpdateNotes && !sUpdateConfirm; UI_UNLOCK();
+    return open;
+}
+void Port_SecondScreen_3DS_ScrollChangelog(int lines) {
+    UI_LOCK();
+    if (lines < 0) sUpdatePage = sUpdatePage > (unsigned)-lines ? sUpdatePage - (unsigned)-lines : 0;
+    else sUpdatePage = sUpdatePage + (unsigned)lines < sUpdatePages ? sUpdatePage + (unsigned)lines : sUpdatePages;
+    UI_UNLOCK();
 }
