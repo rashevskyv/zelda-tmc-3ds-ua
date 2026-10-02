@@ -156,23 +156,136 @@ static bool HandleUpdateTap(int action, int arg) {
     return true;
 }
 
+
+/* ua-release: while the Screen settings page is open the top screen explains
+ * what the current display choices do and what to expect from them. Players
+ * took Pixel Perfect's small 1:1 frame, and Full View switching between
+ * 400x240 rooms and that frame, for a broken display. */
+extern bool Port_Config_3DSFullViewComboEnabled(void);
+
+static bool ScreenHelpOpen(void) {
+    UI_LOCK();
+    bool open = sUi.tab == SS_TAB_SETTINGS && sUi.settingsPage == SS_SETTINGS_SCREEN;
+    UI_UNLOCK();
+    return open;
+}
+
+bool Port_SecondScreen_3DS_TopPanelOpen(void) {
+    return Port_SecondScreen_3DS_UpdateOpen() || ScreenHelpOpen();
+}
+
+/* Identifies the help text for the current settings, so it is rebuilt only
+ * when one of them changes. */
+static unsigned ScreenHelpSignature(void) {
+    return 0x80000000u | ((unsigned)Port_Config_Get3DSAspectRatio() << 8) |
+           ((unsigned)Port_Config_Get3DSDisplayStyle() << 4) |
+           (Platform3DS_IsNew3DS() ? 2u : 0u) | (Port_Config_3DSFullViewComboEnabled() ? 1u : 0u);
+}
+
+static void ScreenHelpText(char* out, size_t cap) {
+    const int aspect = Port_Config_Get3DSAspectRatio();
+    const int style = Port_Config_Get3DSDisplayStyle();
+    const bool fullView = Port_Config_3DSFullViewComboEnabled();
+    const bool ua = Port_IsUkrainianRom();
+    const char* now;
+    if (ua) {
+        static const char* const kAspect[] = { "ШИРОКИЙ", "ОРИГІНАЛ", "РОЗТЯГНУТО" };
+        static const char* const kStyle[] = { "РОЗМИТТЯ", "БІЛІНІЙНИЙ", "ПІКСЕЛЬ 1:1" };
+        char head[96];
+        snprintf(head, sizeof(head), "Зараз: %s + %s.\n\n",
+                 kAspect[aspect >= 0 && aspect < 3 ? aspect : 0], kStyle[style >= 0 && style < 3 ? style : 0]);
+        if (fullView)
+            now = "Експериментальний повний огляд (лише New 3DS). Кімнати надворі займають увесь "
+                  "екран 400x240 без масштабування, підтримувані приміщення збільшено рівно вдвічі. "
+                  "Діалоги, переходи, меню й заставки цей режим не підтримує: на цей час картинка "
+                  "стає малим кадром 1:1 посередині, а потім повертається. Так задумано.\n\n"
+                  "Щоб картинка завжди була на весь екран, оберіть ФІЛЬТР: РОЗМИТТЯ або БІЛІНІЙНИЙ.";
+        else if (style == PORT_3DS_DISPLAY_PIXEL_PERFECT)
+            now = "Кожен піксель гри показано одним пікселем екрана, без масштабування. Тому кадр "
+                  "малий і стоїть посередині: екран 3DS має 240 рядків, а кадр GBA 160, і збільшити "
+                  "його рівно вдвічі не вийде. Так задумано.\n\n"
+                  "Щоб картинка була на весь екран, оберіть ФІЛЬТР: РОЗМИТТЯ або БІЛІНІЙНИЙ.";
+        else if (style == PORT_3DS_DISPLAY_BILINEAR)
+            now = aspect == PORT_3DS_ASPECT_STRETCH
+                      ? "Кадр GBA розтягнуто на весь екран: спершу збільшено вдвічі піксель у піксель, "
+                        "потім плавно зменшено. Чітко, але пропорції трохи ширші за оригінал."
+                      : aspect == PORT_3DS_ASPECT_ORIGINAL
+                            ? "Кадр на всю висоту екрана в пропорціях GBA, з вузькими чорними смугами з "
+                              "боків. Спершу збільшено вдвічі піксель у піксель, потім плавно зменшено: чітко."
+                            : "Гра показує ширшу ділянку світу й заповнює весь екран. Спершу збільшено "
+                              "вдвічі піксель у піксель, потім плавно зменшено: чітко.";
+        else
+            now = aspect == PORT_3DS_ASPECT_STRETCH
+                      ? "Кадр GBA розтягнуто на весь екран з м'яким згладжуванням."
+                      : aspect == PORT_3DS_ASPECT_ORIGINAL
+                            ? "Кадр на всю висоту екрана в пропорціях GBA, з вузькими чорними смугами з "
+                              "боків, м'яко згладжений."
+                            : "Гра показує ширшу ділянку світу й заповнює весь екран, м'яко згладжено.";
+        snprintf(out, cap, "%s%s\n\n"
+            "Що робить кожен пункт:\n\n"
+            "СПІВВІДНОШЕННЯ - ширина картинки.\n"
+            "- ШИРОКИЙ: ширша ділянка світу на весь екран.\n"
+            "- ОРИГІНАЛ: пропорції GBA, смуги з боків.\n"
+            "- РОЗТЯГНУТО: кадр GBA розтягнуто на весь екран.\n\n"
+            "ФІЛЬТР - як збільшувати кадр.\n"
+            "- РОЗМИТТЯ: на весь екран, м'яко.\n"
+            "- БІЛІНІЙНИЙ: на весь екран, чіткіше.\n"
+            "- ПІКСЕЛЬ 1:1: без збільшення, малий кадр посередині. "
+            "Разом із ШИРОКИМ на New 3DS вмикає експериментальний повний огляд.\n\n"
+            "ПАНЕЛЬ ЗВЕРХУ - показувати чи ховати серця, рупії й кнопки предметів поверх гри; "
+            "вони є й на нижньому екрані.\n\n"
+            "КОРЕКЦІЯ КОЛЬОРУ - кольори як на екрані GBA, м'якші за яскраві оригінальні.\n\n"
+            "ТЛО ПАНЕЛІ - візерунок фону нижнього екрана.", head, now);
+        return;
+    }
+    static const char* const kAspect[] = { "WIDE", "ORIGINAL", "STRETCH" };
+    static const char* const kStyle[] = { "BLUR", "BILINEAR", "PIXEL PERFECT" };
+    if (fullView)
+        now = "Experimental Full View (New 3DS only): outdoor rooms fill the 400x240 screen "
+              "unscaled, supported interiors are doubled. Dialogues, transitions, menus and "
+              "story scenes drop to the small 1:1 frame and come back. This is expected.\n\n"
+              "For a full-screen picture all the time, pick Display Style Blur or Bilinear.";
+    else if (style == PORT_3DS_DISPLAY_PIXEL_PERFECT)
+        now = "One screen pixel per game pixel, no scaling, so the frame is small and centred: "
+              "the screen has 240 lines and the GBA frame 160, too few for an exact 2x. "
+              "This is expected.\n\nFor a full-screen picture, pick Display Style Blur or Bilinear.";
+    else if (style == PORT_3DS_DISPLAY_BILINEAR)
+        now = "The frame fills the screen height: doubled pixel for pixel, then smoothly scaled down. Sharp.";
+    else
+        now = "The frame fills the screen height with soft filtering.";
+    snprintf(out, cap, "Now: %s + %s.\n\n%s\n\n"
+        "Aspect Ratio: Wide shows more of the world, Original keeps GBA proportions, "
+        "Stretch fills the screen with the GBA frame.\n\n"
+        "Display Style: Blur is soft, Bilinear sharper, Pixel Perfect unscaled and small "
+        "(with Wide on New 3DS: experimental Full View).",
+        kAspect[aspect >= 0 && aspect < 3 ? aspect : 0], kStyle[style >= 0 && style < 3 ? style : 0], now);
+}
+
 /* Main-thread top painter. Theme caches have been initialized before either
  * screen worker starts; the top view reads only their immutable art. */
 bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
-    if (!Port_SecondScreen_3DS_UpdateOpen()) return false;
+    const bool help = ScreenHelpOpen(); /* ua-release */
+    if (!help && !Port_SecondScreen_3DS_UpdateOpen()) return false;
     UpdateStatus st; Updater_GetStatus(&st);
     bool notes; unsigned page;
     UI_LOCK(); notes = sUpdateNotes; page = sUpdatePage; UI_UNLOCK();
+    /* ua-release: the help reads like release notes (font, scrolling), and
+     * switching between it and the updater starts again at the top. */
+    static bool lastHelp;
+    if (help != lastHelp) { page = 0; UI_LOCK(); sUpdatePage = 0; UI_UNLOCK(); lastHelp = help; }
+    if (help) notes = true;
+    const unsigned rev = help ? ScreenHelpSignature() : st.revision;
     static unsigned paintedRevision = UINT32_MAX, paintedPage = UINT32_MAX;
     static bool paintedNotes;
-    if (paintedRevision == st.revision && paintedPage == page && paintedNotes == notes) return false;
-    paintedRevision=st.revision; paintedPage=page; paintedNotes=notes;
+    if (paintedRevision == rev && paintedPage == page && paintedNotes == notes) return false;
+    paintedRevision=rev; paintedPage=page; paintedNotes=notes;
     static char lines[512][UPDATE_LINE]; /* tloz-tmc-ua */
     static unsigned count, revision = UINT32_MAX;
     static bool lastNotes;
-    if (revision != st.revision || notes != lastNotes) {
+    if (revision != rev || notes != lastNotes) {
         static char body[12289], formatted[512][UPDATE_LINE]; /* tloz-tmc-ua */
-        if (notes && st.version[0]) Updater_GetNotes(body,sizeof(body));
+        if (help) ScreenHelpText(body,sizeof(body));
+        else if (notes && st.version[0]) Updater_GetNotes(body,sizeof(body));
         else snprintf(body,sizeof(body),"Installed: v%s\n\n%s\n\nSelect a release below to read its changelog.\nChoose Stable or Pre-release to check that channel.",TMC_PORT_VERSION,st.message);
         const bool ua = Port_IsUkrainianRom(); /* tloz-tmc-ua */
         unsigned n = Update_FormatNotesUtf8(body,&formatted[0][0],UPDATE_LINE,ua ? UPDATE_LINE-1 : 42,512,ua);
@@ -193,7 +306,7 @@ bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
                 text += take; while (*text==' ') ++text;
             } while (*text && count<512);
         }
-        revision=st.revision; lastNotes=notes;
+        revision=rev; lastNotes=notes;
     }
     const unsigned maxTop = count > UPDATE_VISIBLE_LINES ? count - UPDATE_VISIBLE_LINES : 0;
     if (page>maxTop) page=maxTop;
@@ -203,7 +316,7 @@ bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
     SSurf s={pixels,400,240,stride};
     Port_SecondScreenTheme_DrawBackdrop(pixels,400,240,stride,0,0,400,240,2);
     Port_SecondScreenTheme_DrawPlate(pixels,400,240,stride,4,4,392,232,2);
-    char title[80]; snprintf(title,sizeof(title),!notes ? "UPDATE" : st.version[0] ? "CHANGELOG %s" : "CHANGELOG",st.version); /* ua-release: no trailing space to off-centre the chip */
+    char title[80]; snprintf(title,sizeof(title),help ? "SCREEN" : !notes ? "UPDATE" : st.version[0] ? "CHANGELOG %s" : "CHANGELOG",st.version); /* ua-release: no trailing space to off-centre the chip */
     for(char* c=title;*c;++c) *c=(char)toupper((unsigned char)*c);
     DrawPanelHeaderChip(&s,200,14,title,1,1.0f/3);
     Port_SecondScreenTheme_DrawWell(pixels,400,240,stride,17,47,366,165,1);
@@ -231,6 +344,7 @@ bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride) {
 /* ua-release: D-pad scrolling of the open changelog (driven by platform_3ds.c
  * PollInput, which owns the key codes and the hold-to-repeat timing). */
 bool Port_SecondScreen_3DS_ChangelogOpen(void) {
+    if (ScreenHelpOpen()) return true;
     if (!Port_SecondScreen_3DS_UpdateOpen()) return false;
     UI_LOCK(); bool open = sUpdateNotes && !sUpdateConfirm; UI_UNLOCK();
     return open;

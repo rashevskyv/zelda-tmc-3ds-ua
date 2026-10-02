@@ -13,6 +13,8 @@ extern "C" {
 
 bool Port_SecondScreen_3DS_UpdateOpen(void);
 bool Port_SecondScreen_3DS_PaintUpdateTop(uint32_t* pixels, int stride);
+/* ua-release: the top screen shows a panel (updater or Screen-settings help). */
+bool Port_SecondScreen_3DS_TopPanelOpen(void);
 /* ua-release: D-pad scrolling of the changelog. */
 #define PORT_3DS_CHANGELOG_PAGE_LINES 9
 bool Port_SecondScreen_3DS_ChangelogOpen(void);

@@ -915,7 +915,7 @@ bool PlatformGpu3DS_QueueRgba5551Readback(void* texturePointer, uint16_t* pixels
 /* The changelog always occupies the physical top screen at 400x240,
  * independent of the gameplay aspect/filter and Full View settings. */
 static void DrawUpdateTop(void) {
-    if (!Port_SecondScreen_3DS_UpdateOpen()) return;
+    if (!Port_SecondScreen_3DS_TopPanelOpen()) return; /* ua-release: also the Screen help */
     /* GX display transfer is not a padded row copy: its output dimensions
      * describe the transfer extent. Match the 512x256 texture on both sides;
      * a 400x240 input produces corrupt tiled rows on hardware. Only the
