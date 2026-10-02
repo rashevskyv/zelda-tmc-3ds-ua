@@ -73,6 +73,19 @@ USA-рому. Тому майже вся локалізація живе в **р
   `python3 ua/make_splash.py`; після зміни PNG перегенеруйте й закомітьте обидва.
 - `platform/3ds/CMakeLists.txt` — один `configure_file`, що копіює
   `splash-ua.rgb565` у romfs (з позначкою `tloz-tmc-ua`).
+- `platform/3ds/source/update_manifest.c|h` — `Update_FormatNotesUtf8()`: той самий
+  форматер changelog, але з прапорцем `utf8`, який не викидає байти ≥ 0x80 і не
+  розрізає UTF-8 при перенесенні рядків; `Update_FormatNotes()` викликає його з
+  `false`, тож для апстріму нічого не змінюється.
+- `platform/3ds/source/update_ui_3ds.inc` — include `port_ua.h` і виклик
+  `Update_FormatNotesUtf8(..., Port_IsUkrainianRom())`: з українським ромом
+  кириличний changelog з GitHub малюється українським шрифтом. Текст changelog
+  з українським ромом іде шрифтом повідомлень (`UpdateBodyText`): у ньому є і
+  кирилиця, і латиниця, тож назви файлів і хеші читаються; заголовки й кнопки
+  лишаються «банерним» шрифтом.
+- `port/port_second_screen.c` — include `port_ua.h` і `Port_UA_QuestTabExtra()` у
+  `PaintTabBar()`: вкладка QUEST зветься «СТАТИСТИКА», як меню паузи в грі, і
+  з українським ромом стає на 10 px ширшою за рахунок вкладки «МАПА».
 - `ua/` — ця документація та перевірка `ua/check.sh`.
 
 Інших змін у файлах збірки немає; `port_ua*.h` — header-only.
@@ -89,6 +102,7 @@ bash ua/check.sh               # хук на місці, компілюєтьс�
 `src/title.c` (`HandleTitlescreen()`), `src/object/titleScreenObject.c`,
 `src/object/japaneseSubtitle.c`, `src/menu/kinstoneMenu.c`, `src/menu/pauseMenu.c`,
 `port/port_second_screen_theme.c` (функції тексту й `GlyphData`),
+`platform/3ds/source/update_manifest.c` і `update_ui_3ds.inc` (changelog),
 `platform/3ds/source/platform_3ds.c` (`Platform3DS_ShowSplash()`) та
 `platform/3ds/CMakeLists.txt` (копіювання romfs).
 Тоді досить повернути рядки з позначкою `tloz-tmc-ua` і знову запустити
@@ -110,8 +124,10 @@ bash ua/check.sh               # хук на місці, компілюєтьс�
 
 ## Відомі обмеження
 
-- Написи порту перекладено чернеткою; текст changelog з GitHub на екрані
-  оновлення — англійський, у великому шрифті він транслітерується.
+- Написи порту перекладено чернеткою. Changelog з GitHub з українським ромом
+  показує кирилицю і латиницю (текст іде шрифтом повідомлень).
+  Рядок changelog обмежений 42 байтами, а кирилична літера займає 2, тож
+  українські рядки виходять удвічі коротші за англійські.
 - **Вбудований оновлювач** бере релізи з `EstebanPdN/zelda-tmc-3ds`
   (`platform/3ds/source/update_manifest.h`, `UPDATE_REPOSITORY`). Оновлення
   з нього встановить офіційну збірку: текст лишиться українським (він у ромі), але
