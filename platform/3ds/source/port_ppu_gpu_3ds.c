@@ -67,9 +67,10 @@ static C3D_Tex sOutputTextureRight;
 static C3D_RenderTarget* sOutputTargetRight;
 static bool sRightEyeValid;
 /* Horizontal shift in GBA pixels for the eye being drawn: backgrounds and
- * sprites by priority. All zero in 2D. */
+ * sprites by priority, and sprites the game gave a depth of their own by
+ * that depth in units. All zero in 2D. */
 typedef struct EyeShift {
-    int bg[4], obj[4];
+    int bg[4], obj[4], tagged[PPU_GPU3DS_STEREO_TAG_UNITS];
 } EyeShift;
 static EyeShift sEyeShift;
 static DVLB_s* sShader;
@@ -179,9 +180,11 @@ bool PortPpuGpu3DS_Init(void) {
     /* The builder stops short of the reset quad at the end of both buffers. */
     {
         PpuGpu3DSVertex* quad = sVertices + PPU_GPU3DS_CLEAR_FIRST_VERTEX;
-        static const float kX[4] = { -1.0f, 1.0f, -1.0f, 1.0f };
+        /* Corners in the order the static index pattern (0 1 2, 0 2 3)
+         * expects. Listed as a Z they left the right-hand wedge of the frame
+         * uncovered. */
+        static const float kX[4] = { -1.0f, 1.0f, 1.0f, -1.0f };
         static const float kY[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
-        static const uint8_t kOrder[6] = { 0, 1, 2, 2, 1, 3 };
         for (unsigned corner = 0; corner < 4u; ++corner) {
             quad[corner].x = kX[corner];
             quad[corner].y = kY[corner];
@@ -189,7 +192,6 @@ bool PortPpuGpu3DS_Init(void) {
             quad[corner].u = 0;
             quad[corner].v = 0;
         }
-        (void)kOrder;  /* the static index pattern already covers this quad */
         Platform3DS_CleanDataCache(quad, 4u * sizeof(*quad));
     }
     PpuGpu3DS_CommandInit(&sCommands, sVertices, PPU_GPU3DS_BUILD_VERTICES, sIndices,
@@ -233,18 +235,24 @@ bool PortPpuGpu3DS_Init(void) {
     }
 
     /* Right-eye target for stereoscopic 3D. Not fatal: without it the top
-     * screen stays flat. */
+     * screen stays flat.
+     *
+     * It borrows the left eye's depth-stencil buffer instead of owning one.
+     * The eyes are drawn one after the other and each pass clears the buffer
+     * first, so nothing is shared in time -- and a second 512 KiB buffer does
+     * not fit: the presenter leaves under 1 MiB of VRAM free, split between
+     * the two banks, and the allocation failed on every console. */
     if (C3D_TexInitVRAM(&sOutputTextureRight, PPU_GPU3DS_OUTPUT_WIDTH,
                         PPU_GPU3DS_OUTPUT_HEIGHT, GPU_RGBA5551)) {
         C3D_TexSetFilter(&sOutputTextureRight, GPU_NEAREST, GPU_NEAREST);
         C3D_TexSetWrap(&sOutputTextureRight, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
         sOutputTargetRight = C3D_RenderTargetCreateFromTex(
-            &sOutputTextureRight, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
-        const C3D_FrameBuf* fb = sOutputTargetRight ? &sOutputTargetRight->frameBuf : NULL;
-        if (!fb || !fb->depthBuf || fb->depthFmt != GPU_RB_DEPTH24_STENCIL8 ||
-            (fb->depthMask & 0x1) == 0) {
-            if (sOutputTargetRight) C3D_RenderTargetDelete(sOutputTargetRight);
-            sOutputTargetRight = NULL;
+            &sOutputTextureRight, GPU_TEXFACE_2D, 0, -1);
+        if (sOutputTargetRight) {
+            const C3D_FrameBuf* left = &sOutputTarget->frameBuf;
+            C3D_FrameBufDepth(&sOutputTargetRight->frameBuf, left->depthBuf,
+                              left->depthFmt);
+        } else {
             C3D_TexDelete(&sOutputTextureRight);
             sOutputTextureRight = (C3D_Tex){ 0 };
         }
@@ -369,7 +377,14 @@ bool PortPpuGpu3DS_Preflight(const PpuGpu3DSFrameView* frame) {
     sStats.lastCommandWords = (uint32_t)commandWords;
     if (commandWords > sStats.maxCommandWords)
         sStats.maxCommandWords = (uint32_t)commandWords;
-    if (!PpuGpu3DS_CommandBudgetFits(commandWords, gpuCmdBuf != NULL,
+    /* A stereo frame submits the batch list once per eye, and whether this
+     * one will is not known until it is drawn, so leave room for both. The
+     * command buffer is sized for that. */
+    const size_t budgetWords =
+            sOutputTargetRight && commandWords <= SIZE_MAX / 2u
+                    ? commandWords * 2u
+                    : commandWords;
+    if (!PpuGpu3DS_CommandBudgetFits(budgetWords, gpuCmdBuf != NULL,
                                     gpuCmdBufSize, gpuCmdBufOffset)) {
         ++sStats.commandBudgetFallbacks;
         return FinishPreflight(false, startTick);
@@ -643,13 +658,28 @@ unsigned long long PortPpuGpu3DS_EmptyDrawsSkipped(void) {
  * stack HUD and text over the world, so priority 0 stays on the screen plane
  * and each step back sits a little deeper -- a diorama of flat layers rather
  * than real depth, which suits the cartoon art. */
-static float EyeShiftClip(const PpuGpu3DSBatch* batch) {
-    int px = 0;
-    if (batch->layer == PPU_GPU3DS_OBJ)
-        px = sEyeShift.obj[batch->priority & 3u];
-    else if (batch->layer != PPU_GPU3DS_BACKDROP && batch->priority <= 3u)
-        px = sEyeShift.bg[batch->priority];
-    return px && sPreparedWidth ? 2.0f * (float)px / (float)sPreparedWidth : 0.0f;
+static int EyeShiftPx(const PpuGpu3DSBatch* batch) {
+    if (batch->layer == PPU_GPU3DS_OBJ) {
+        const unsigned tag = batch->objectIndex < MODE1_GBA_OAM_COUNT
+                                     ? virtuappu_mode1_obj_stereo_depth[batch->objectIndex]
+                                     : 0u;
+        if (tag != 0u && tag <= PPU_GPU3DS_STEREO_TAG_UNITS)
+            return sEyeShift.tagged[tag - 1u];
+        return sEyeShift.obj[batch->priority & 3u];
+    }
+    if (batch->layer != PPU_GPU3DS_BACKDROP && batch->priority <= 3u)
+        return sEyeShift.bg[batch->priority];
+    return 0;
+}
+
+/* A batch's scissor moves with it: a sprite's is its own outline, and left in
+ * place it shaves one side off the shifted sprite and bares a seam on the
+ * other. An edge on the frame boundary stays there. */
+static u32 ShiftScissorEdge(unsigned edge, int px) {
+    if (edge == 0u || edge >= sPreparedWidth) return edge;
+    const int shifted = (int)edge + px;
+    if (shifted < 0) return 0u;
+    return (unsigned)shifted > sPreparedWidth ? sPreparedWidth : (u32)shifted;
 }
 
 static void DrawBatch(const PpuGpu3DSBatch* batch) {
@@ -661,7 +691,16 @@ static void DrawBatch(const PpuGpu3DSBatch* batch) {
         ++sEmptyDrawsSkipped;
         return;
     }
-    SetBatchOffset(batch->offsetX + EyeShiftClip(batch), batch->offsetY);
+    const int shiftPx = EyeShiftPx(batch);
+    u32 scissorLeft = batch->scissorLeft, scissorRight = batch->scissorRight;
+    float shiftClip = 0.0f;
+    if (shiftPx != 0 && sPreparedWidth != 0) {
+        scissorLeft = ShiftScissorEdge(scissorLeft, shiftPx);
+        scissorRight = ShiftScissorEdge(scissorRight, shiftPx);
+        if (scissorLeft >= scissorRight) return;
+        shiftClip = 2.0f * (float)shiftPx / (float)sPreparedWidth;
+    }
+    SetBatchOffset(batch->offsetX + shiftClip, batch->offsetY);
     const u32 yOffset = sViewportOffset;
     u32 top, bottom;
     switch (Port_Config_GpuScissorMode()) {
@@ -687,7 +726,7 @@ static void DrawBatch(const PpuGpu3DSBatch* batch) {
             break;
         }
     }
-    SetScissorCached(batch->scissorLeft, top, batch->scissorRight, bottom);
+    SetScissorCached(scissorLeft, top, scissorRight, bottom);
     C3D_DrawElements(GPU_TRIANGLES, (int)batch->indexCount,
                      C3D_UNSIGNED_SHORT, sIndices + batch->firstIndex);
 }
@@ -742,12 +781,52 @@ static void ClearStencilPlane(void) {
                      sIndices + PPU_GPU3DS_CLEAR_FIRST_INDEX);
 }
 
+/* A background shifted for one eye leaves a strip at one edge of the frame
+ * that it no longer covers. Both eyes get the same black border over the
+ * widest such strip, so the picture sits in a clean frame on the screen plane
+ * instead of ending in a ragged edge only one eye can see. */
+static unsigned sEdgeMaskPx;
+
+static void DrawEdgeMask(void) {
+    if (sEdgeMaskPx == 0u || sEdgeMaskPx * 2u >= sPreparedWidth) return;
+    const u32 yOffset = sViewportOffset;
+    SetBatchOffset(0.0f, 0.0f);
+    for (int stage = 0; stage < 3; ++stage)
+        C3D_TexEnvInit(C3D_GetTexEnv(stage));
+    C3D_TexEnv* fill = C3D_GetTexEnv(0);
+    C3D_TexEnvColor(fill, 0xff000000u);
+    C3D_TexEnvSrc(fill, C3D_Both, GPU_CONSTANT, GPU_CONSTANT, GPU_CONSTANT);
+    C3D_TexEnvFunc(fill, C3D_Both, GPU_REPLACE);
+    sTevKey = 0xffffffffu;
+    C3D_BlendingColor(0);
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO,
+                   GPU_ONE, GPU_ZERO);
+    sBlendKey = 0xffffffffu;
+    C3D_AlphaTest(false, GPU_ALWAYS, 0);
+    C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
+    C3D_StencilTest(false, GPU_ALWAYS, 0, 0xff, 0);
+    C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_KEEP);
+    SetScissorCached(0, yOffset, sEdgeMaskPx, yOffset + sPreparedHeight);
+    C3D_DrawElements(GPU_TRIANGLES, 6, C3D_UNSIGNED_SHORT,
+                     sIndices + PPU_GPU3DS_CLEAR_FIRST_INDEX);
+    SetScissorCached(sPreparedWidth - sEdgeMaskPx, yOffset, sPreparedWidth,
+                     yOffset + sPreparedHeight);
+    C3D_DrawElements(GPU_TRIANGLES, 6, C3D_UNSIGNED_SHORT,
+                     sIndices + PPU_GPU3DS_CLEAR_FIRST_INDEX);
+}
+
 /* Draws the prepared batch list into one target with the given per-layer
  * eye shifts (all zero for 2D). */
 static bool DrawPass(C3D_RenderTarget* target, const EyeShift* shift) {
     sEyeShift = *shift;
     sScissorKeyLow = 0xffffffffu;
     sScissorKeyHigh = 0xffffffffu;
+    /* The right eye borrows the left eye's depth-stencil buffer, and citro3d
+     * queues a clear at once unless this very target has pending draws. So
+     * submit the left eye's draws first, or the clear overtakes them and the
+     * right eye starts on the left eye's sprite depths -- which hides the edge
+     * of every sprite whose neighbour comes earlier in OAM. */
+    if (target == sOutputTargetRight) C3D_FrameSplit(0);
     C3D_RenderTargetClear(target, C3D_CLEAR_ALL,
                           ClearColor(sCommands.batches[0].color), 0);
     if (!C3D_FrameDrawOn(target)) return false;
@@ -834,6 +913,7 @@ static bool DrawPass(C3D_RenderTarget* target, const EyeShift* shift) {
             C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
         DrawBatch(batch);
     }
+    DrawEdgeMask();
 
     for (int stage = 0; stage < 3; ++stage)
         C3D_TexEnvInit(C3D_GetTexEnv(stage));
@@ -856,7 +936,7 @@ static bool DrawPass(C3D_RenderTarget* target, const EyeShift* shift) {
     return true;
 }
 
-bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerStep) {
+bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerUnit) {
     const uint64_t startTick = svcGetSystemTick();
     /* citro2d programs the scissor for its own draws between our frames, so
      * the cache cannot survive across a frame boundary. */
@@ -878,15 +958,32 @@ bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerStep) {
      * screen. Whole pixels only -- the atlas is sampled nearest, and
      * half-texel offsets shimmer. */
     EyeShift left = { 0 }, right = { 0 };
-    const bool stereo = pxPerStep > 0.0f && sOutputTargetRight;
+    const bool stereo = pxPerUnit > 0.0f && sOutputTargetRight;
+    sEdgeMaskPx = 0;
     if (stereo) {
         EyeShift disparity;
-        PpuGpu3DS_StereoDisparity(pxPerStep, disparity.bg, disparity.obj);
+        PpuGpu3DS_StereoDisparity(pxPerUnit, disparity.bg, disparity.obj);
+        /* Only backgrounds fill the frame, so only they can bare an edge. */
+        int widest = 0;
+        for (size_t i = 1; i < sCommands.batchCount; ++i) {
+            const PpuGpu3DSBatch* batch = &sCommands.batches[i];
+            if (batch->layer > PPU_GPU3DS_BG3 || batch->priority > 3u ||
+                batch->indexCount == 0)
+                continue;
+            if (disparity.bg[batch->priority] > widest)
+                widest = disparity.bg[batch->priority];
+        }
+        sEdgeMaskPx = (unsigned)(widest - widest / 2);
         for (unsigned i = 0; i < 4u; ++i) {
             left.bg[i] = -(disparity.bg[i] / 2);
             right.bg[i] = disparity.bg[i] - disparity.bg[i] / 2;
             left.obj[i] = -(disparity.obj[i] / 2);
             right.obj[i] = disparity.obj[i] - disparity.obj[i] / 2;
+        }
+        for (unsigned units = 0; units < PPU_GPU3DS_STEREO_TAG_UNITS; ++units) {
+            const int px = PpuGpu3DS_StereoUnitsPx(pxPerUnit, (int)units);
+            left.tagged[units] = -(px / 2);
+            right.tagged[units] = px - px / 2;
         }
     }
     if (!DrawPass(sOutputTarget, &left)) return FinishDraw(false, startTick);

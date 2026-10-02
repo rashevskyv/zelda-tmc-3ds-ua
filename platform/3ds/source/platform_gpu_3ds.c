@@ -928,9 +928,10 @@ void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, 
 float PlatformGpu3DS_StereoDepth(void) {
     const int strength = Port_Config_Get3DSStereoStrength();
     if (!sReady || !sTopTargetRight || strength <= 0) return 0.0f;
-    /* LOW / MEDIUM / HIGH put neighbouring depth steps 1 / 1.5 / 2 GBA pixels
-     * apart with the slider at full. */
-    return osGet3DSliderState() * 0.5f * (float)(strength + 1);
+    /* LOW / MEDIUM / HIGH put the ground 4 / 6 / 8 GBA pixels behind the HUD
+     * with the slider at full, and the sprites standing on it 1 / 2 / 3 in
+     * front of it. */
+    return osGet3DSliderState() * (float)(strength + 1) / 3.0f;
 }
 
 bool PlatformGpu3DS_QueueRgba5551Readback(void* texturePointer, uint16_t* pixels) {

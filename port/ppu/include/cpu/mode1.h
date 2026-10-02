@@ -104,6 +104,11 @@ extern uint8_t virtuappu_mode1_obj_y_negative_staged[MODE1_GBA_OAM_COUNT];
 extern uint8_t virtuappu_mode1_obj_clip_mark_staged[MODE1_GBA_OAM_COUNT];
 extern int virtuappu_mode1_obj_clip_y_staged;
 extern int virtuappu_mode1_obj_clip_enable_staged;
+/* Stereoscopic 3D: a depth of its own for an OAM entry, as depth units + 1;
+ * 0 leaves the sprite at the depth its priority implies. Only a renderer
+ * that draws the layers apart for two eyes reads it. */
+extern uint8_t virtuappu_mode1_obj_stereo_depth[MODE1_GBA_OAM_COUNT];
+extern uint8_t virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
 void virtuappu_mode1_commit_obj_metadata(void);
 
 /* Runtime WIP widescreen HUD anchor. BG0 stays 32 tiles wide, but gameplay

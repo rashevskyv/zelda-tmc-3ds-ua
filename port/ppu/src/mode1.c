@@ -508,8 +508,12 @@ uint8_t virtuappu_mode1_obj_clip_mark_staged[MODE1_GBA_OAM_COUNT];
 uint8_t virtuappu_mode1_obj_y_negative_staged[MODE1_GBA_OAM_COUNT];
 int virtuappu_mode1_obj_clip_y_staged;
 int virtuappu_mode1_obj_clip_enable_staged;
+uint8_t virtuappu_mode1_obj_stereo_depth[MODE1_GBA_OAM_COUNT];
+uint8_t virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
 
 void virtuappu_mode1_commit_obj_metadata(void) {
+    memcpy(virtuappu_mode1_obj_stereo_depth, virtuappu_mode1_obj_stereo_depth_staged,
+           sizeof(virtuappu_mode1_obj_stereo_depth));
     memcpy(virtuappu_mode1_obj_clip_mark, virtuappu_mode1_obj_clip_mark_staged,
            sizeof(virtuappu_mode1_obj_clip_mark));
     memcpy(virtuappu_mode1_obj_y_negative, virtuappu_mode1_obj_y_negative_staged,

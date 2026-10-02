@@ -14,6 +14,33 @@
  */
 #ifdef PC_PORT
 #include "port_ua.h"
+#include "port_stereo.h"
+
+/* Stereoscopic 3D: where the parts of the title stand, nearest first. The
+ * cap overlaps the subtitle, PRESS START sits between the subtitle and the
+ * logo, and all of it is in front of the light rays (6) and the forest (9).
+ * The game's own priorities put PRESS START nearest and the subtitle behind
+ * the logo. */
+enum {
+    PORT_UA_DEPTH_CAP = 0,
+    PORT_UA_DEPTH_SUBTITLE = 2,
+    PORT_UA_DEPTH_PRESS_START = 3,
+    PORT_UA_DEPTH_LOGO = 4,
+};
+
+static u8 Port_UA_TitleEntityDepth(const Entity* entity) {
+    if (gMain.task != TASK_TITLE || entity->kind != OBJECT) {
+        return 0;
+    }
+    if (entity->id == JAPANESE_SUBTITLE) {
+        /* type 1 is a piece of the subtitle; the rest is the cap */
+        return PORT_STEREO_DEPTH(entity->type == 1 ? PORT_UA_DEPTH_SUBTITLE : PORT_UA_DEPTH_CAP);
+    }
+    if (entity->id == TITLE_SCREEN_OBJECT) {
+        return PORT_STEREO_DEPTH(PORT_UA_DEPTH_LOGO);
+    }
+    return 0;
+}
 
 #define PORT_UA_PRESS_START_X 120
 #define PORT_UA_PRESS_START_Y 126
@@ -32,7 +59,9 @@ static void Port_UA_UpdatePressStartIcon(void) {
         gOamCmd._8 = 0xe000;
         gOamCmd.x = PORT_UA_PRESS_START_X;
         gOamCmd.y = PORT_UA_PRESS_START_Y;
+        gPortStereoDirectDepth = PORT_STEREO_DEPTH(PORT_UA_DEPTH_PRESS_START);
         DrawDirect(0x1ff, 0);
+        gPortStereoDirectDepth = 0;
     }
 }
 
@@ -102,6 +131,7 @@ static bool32 Port_UA_HandleTitlescreen(void) {
         return FALSE;
     }
 
+    gPortStereoEntityDepth = Port_UA_TitleEntityDepth;
     gIntroState.counter++;
     switch (gIntroState.state) {
         case 0:

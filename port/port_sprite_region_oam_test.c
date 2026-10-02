@@ -31,6 +31,7 @@ int gActiveRegion = TMC_REGION_USA;
 RoomControls gRoomControls;
 u8 virtuappu_mode1_obj_y_negative_staged[MODE1_GBA_OAM_COUNT];
 u8 virtuappu_mode1_obj_clip_mark_staged[MODE1_GBA_OAM_COUNT];
+u8 virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
 int virtuappu_mode1_obj_clip_y_staged;
 int virtuappu_mode1_obj_clip_enable_staged;
 
