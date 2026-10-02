@@ -1543,7 +1543,7 @@ int main(void) {
              * none. */
             CHECK(reliefBatch[1] != SIZE_MAX && reliefBatch[2] != SIZE_MAX &&
                   reliefBatch[3] != SIZE_MAX && reliefBatch[4] == SIZE_MAX &&
-                  reliefBatch[5] == SIZE_MAX);
+                  reliefBatch[PPU_GPU3DS_RELIEF_MAX_UNITS] == SIZE_MAX);
             CHECK(layerBatch < reliefBatch[1] && reliefBatch[1] < reliefBatch[2] &&
                   reliefBatch[2] < reliefBatch[3]);
             const PpuGpu3DSBatch* layer = &renderCommand.batches[layerBatch];

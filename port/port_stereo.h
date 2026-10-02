@@ -27,6 +27,9 @@ void Port_Stereo_SetBgDepth(unsigned bg, u8 depth);
 extern u8 gPortStereoDirectDepth;
 /* Depth for an entity's sprites, or NULL to place every entity by priority. */
 extern u8 (*gPortStereoEntityDepth)(const Entity* entity);
+/* The same, asked second, for where the entity stands: the relief's answer
+ * for sprites on ground that is not at the reference level. */
+extern u8 (*gPortStereoEntityGround)(const Entity* entity);
 
 /* Relief: which 8x8 cells of the room's two map backgrounds stand above the
  * floor, as depth units per cell, indexed [row * COLS + col] by the cell's
@@ -36,13 +39,10 @@ extern u8 (*gPortStereoEntityDepth)(const Entity* entity);
 enum {
     PORT_STEREO_RELIEF_COLS = 40,
     PORT_STEREO_RELIEF_ROWS = 32,
-    /* The most a cell stands above the floor, in depth units: the top of
-     * anything four tiles tall or more. Sprites stand two units up, so the
-     * tallest things come nearer than the sprites walking past them. */
-    PORT_STEREO_RELIEF_UNITS = 4,
-    /* The largest value a grid cell can hold: that, plus the unit everything
-     * stands up by when the layer is sunk for water. */
-    PORT_STEREO_RELIEF_MAX_CELL = PORT_STEREO_RELIEF_UNITS + 1,
+    /* The largest value a grid cell can hold: from the lowest ground a room
+     * can have (three units under the reference) to the tallest thing (five
+     * over it); see port_stereo_relief.h. */
+    PORT_STEREO_RELIEF_MAX_CELL = 8,
 };
 enum { PORT_STEREO_RELIEF_BOTTOM, PORT_STEREO_RELIEF_TOP, PORT_STEREO_RELIEF_LAYERS };
 extern u8 gPortStereoRelief[PORT_STEREO_RELIEF_LAYERS][PORT_STEREO_RELIEF_ROWS * PORT_STEREO_RELIEF_COLS];

@@ -42,6 +42,7 @@ static int sRenderingPlayer = 0;
 /* Stereoscopic 3D depth for the pieces being emitted; see port_stereo.h. */
 u8 gPortStereoDirectDepth;
 u8 (*gPortStereoEntityDepth)(const Entity* entity);
+u8 (*gPortStereoEntityGround)(const Entity* entity);
 static u8 sStereoDepthTag;
 
 void Port_Stereo_SetBgDepth(unsigned bg, u8 depth) {
@@ -842,6 +843,9 @@ static void DrawEntitySprites(Entity* entity, s32 x, s32 y, u32 flags, u16 extra
      * so the swamp-sink OAM marking below covers Link's composite sprite. */
     sRenderingPlayer = (entity == &gPlayerEntity.base);
     sStereoDepthTag = gPortStereoEntityDepth ? gPortStereoEntityDepth(entity) : 0;
+    if (sStereoDepthTag == 0 && gPortStereoEntityGround) {
+        sStereoDepthTag = gPortStereoEntityGround(entity);
+    }
 
     if (renderMode == 0) {
         /* Normal sprite rendering */

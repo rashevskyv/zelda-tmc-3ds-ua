@@ -255,9 +255,9 @@ static void ScreenHelpText(char* out, size_t cap) {
             "зменшує ефект. ВИМКНЕНО - картинка пласка за будь-якого положення повзунка. "
             "В експериментальному повному огляді 3D не працює.\n\n"
             "РЕЛЬЄФ 3D - стіни, дерева, меблі й усе інше, крізь що не можна пройти, "
-            "підняті над землею: що вища річ на малюнку, то ближче її верх. Глибока вода "
-            "і ями лежать нижче землі. Працює разом із ГЛИБИНОЮ 3D, окрім "
-            "СПІВВІДНОШЕННЯ: ШИРОКИЙ.\n\n"
+            "підняті над землею: що вища річ на малюнку, то ближче її верх. Земля на "
+            "уступах і пагорбах стоїть вище, глибока вода і ями - нижче, а герої стоять "
+            "на своїй землі. Працює разом із ГЛИБИНОЮ 3D, окрім СПІВВІДНОШЕННЯ: ШИРОКИЙ.\n\n"
             "ПАНЕЛЬ ЗВЕРХУ - показувати чи ховати серця, рупії й кнопки предметів поверх гри; "
             "вони є й на нижньому екрані.\n\n"
             "КОРЕКЦІЯ КОЛЬОРУ - кольори як на екрані GBA, м'якші за яскраві оригінальні.\n\n"
@@ -288,8 +288,9 @@ static void ScreenHelpText(char* out, size_t cap) {
         "sit a little deeper, the ground and far backgrounds deeper still. Low, Medium and "
         "High set how far apart the layers go; Off keeps the picture flat.\n\n"
         "3D Relief: walls, trees, furniture and everything else that blocks the way "
-        "stand above the ground, taller things nearer; deep water and pits lie below "
-        "it (not in the Wide aspect).",
+        "stand above the ground, taller things nearer; ground on ledges and rises "
+        "stands higher, deep water and pits lie lower, and characters stand on their "
+        "own ground (not in the Wide aspect).",
         kAspect[aspect >= 0 && aspect < 3 ? aspect : 0], kStyle[style >= 0 && style < 3 ? style : 0], now);
 }
 
