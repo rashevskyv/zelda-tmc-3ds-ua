@@ -31,7 +31,7 @@ SETTINGS = {
     "PANEL BACKDROP": ["PATTERN", "CREAM", "DARK", "DIM", "STONE", "SLATE", "NAVY"],
     "SWAP SCREENS": ["ON", "OFF", "RESTART"], "ASPECT RATIO": ["WIDE", "ORIGINAL", "STRETCH"],
     "DISPLAY STYLE": ["BLUR", "BILINEAR", "PIXEL PERFECT"],
-    "3D DEPTH": ["OFF", "LOW", "MEDIUM", "HIGH"],
+    "3D DEPTH": ["OFF", "LOW", "MEDIUM", "HIGH"], "3D RELIEF": ["ON", "OFF"],
 }
 # developer rows: label -> values
 DEVELOPER = {

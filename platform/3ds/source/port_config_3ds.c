@@ -24,6 +24,7 @@ static bool sConsoleParity;
 static _Atomic Port3DSAspectRatio sAspectRatio = CONFIG_3DS_DEFAULT_ASPECT;
 static _Atomic Port3DSDisplayStyle sDisplayStyle = CONFIG_3DS_DEFAULT_DISPLAY;
 static _Atomic int sStereoStrength = PORT_3DS_STEREO_DEFAULT;
+static _Atomic bool sStereoRelief = true;
 /* The desktop file-select overlay is rendered on the gameplay screen and
  * has no useful 3DS interaction path. Keep the native second-screen UI
  * separate and leave this desktop-only overlay disabled. */
@@ -179,6 +180,7 @@ static void SaveConfig(void) {
     fprintf(file, "screen_aspect=%s\n", ConfigValues3DS_AspectName(sAspectRatio));
     fprintf(file, "display_style=%s\n", ConfigValues3DS_DisplayName(sDisplayStyle));
     fprintf(file, "stereo_3d=%d\n", sStereoStrength);
+    fprintf(file, "stereo_relief=%u\n", sStereoRelief ? 1u : 0u);
     fprintf(file, "master_volume=%.2f\n", (double)sVolume);
     fprintf(file, "panel_backdrop=%d\n", sBackdrop);
     fprintf(file, "turbo_multiplier=%u\n", sTurboMultiplier);
@@ -304,6 +306,7 @@ void Port_Config_Load(const char* path) {
                 sDisplayStyle = ConfigValues3DS_ParseDisplay(value);
             }
             else if (strcmp(key, "stereo_3d") == 0) sStereoStrength = (int)strtol(value, NULL, 10);
+            else if (strcmp(key, "stereo_relief") == 0) sStereoRelief = ParseBool(value);
             else if (strcmp(key, "master_volume") == 0) sVolume = strtof(value, NULL);
             else if (strcmp(key, "panel_backdrop") == 0) sBackdrop = (int)strtol(value, NULL, 10);
             else if (strcmp(key, "turbo_multiplier") == 0) sTurboMultiplier = (unsigned)strtoul(value, NULL, 10);
@@ -613,6 +616,8 @@ void Port_Config_Cycle3DSStereoStrength(void) {
     sStereoStrength = (sStereoStrength + 1) % (PORT_3DS_STEREO_MAX + 1);
     SaveConfig();
 }
+bool Port_Config_Get3DSStereoRelief(void) { return sStereoRelief; }
+void Port_Config_Set3DSStereoRelief(bool on) { sStereoRelief = on; SaveConfig(); }
 bool Port_Config_3DSFullViewComboEnabled(void) {
     /* Load each atomic once so a bottom-screen option tap can only select one
      * complete policy on this call. A mixed/transient value fails closed on

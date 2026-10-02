@@ -104,9 +104,12 @@ extern uint8_t virtuappu_mode1_obj_y_negative_staged[MODE1_GBA_OAM_COUNT];
 extern uint8_t virtuappu_mode1_obj_clip_mark_staged[MODE1_GBA_OAM_COUNT];
 extern int virtuappu_mode1_obj_clip_y_staged;
 extern int virtuappu_mode1_obj_clip_enable_staged;
-/* Stereoscopic 3D: a depth of its own for an OAM entry, as depth units + 1;
- * 0 leaves the sprite at the depth its priority implies. Only a renderer
- * that draws the layers apart for two eyes reads it. */
+/* Stereoscopic 3D: a depth of its own for a background or an OAM entry, as
+ * depth units + 1; 0 leaves it at the depth its priority implies. Only a
+ * renderer that draws the layers apart for two eyes reads it. The background
+ * values are plain state that changes with the screen being shown; the OAM
+ * ones are staged and committed with the OAM mirror they describe. */
+extern uint8_t virtuappu_mode1_bg_stereo_depth[MODE1_GBA_BG_COUNT];
 extern uint8_t virtuappu_mode1_obj_stereo_depth[MODE1_GBA_OAM_COUNT];
 extern uint8_t virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
 void virtuappu_mode1_commit_obj_metadata(void);

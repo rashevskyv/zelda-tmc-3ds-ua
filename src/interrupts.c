@@ -236,6 +236,13 @@ void WaitForNextFrame(void) {
         if (gMapTop.bgSettings != NULL)
             DmaCopy32(3, &gBG2Buffer, VRAM + (gMapTop.bgSettings->control & 0x1f00) * 8, 0x5C0);
     }
+#ifdef TMC_3DS
+    {
+        /* Stereoscopic 3D: the relief grid describes the tilemap just copied. */
+        extern void Port_Stereo_CommitRelief(void);
+        Port_Stereo_CommitRelief();
+    }
+#endif
     FadeVBlank();
 }
 

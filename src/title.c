@@ -66,6 +66,12 @@ static void UpdateLightRays(void);
 static void UpdatePressStartIcon(void);
 #ifdef PC_PORT
 static bool32 Port_UA_HandleTitlescreen(void); /* tloz-tmc-ua: Ukrainian title, port/port_ua_title.inc */
+#include "port_stereo.h"
+/* Stereoscopic 3D: the Nintendo and Capcom logos are the whole picture of
+ * their screen, so they stand just behind the screen plane instead of at the
+ * depth their background's priority gives a room's floor. */
+#define PORT_STEREO_LOGO_BG 2
+#define PORT_STEREO_LOGO_DEPTH 2
 #endif
 
 static void (*const sIntroSequenceHandlers[])(void) = {
@@ -187,6 +193,9 @@ static void HandleNintendoCapcomLogos(void) {
         LoadPaletteGroup(paletteGroup);
         gScreen.lcd.displayControl |= DISPCNT_BG2_ON;
         gScreen.bg1.updated = 1;
+#ifdef PC_PORT
+        Port_Stereo_SetBgDepth(PORT_STEREO_LOGO_BG, PORT_STEREO_DEPTH(PORT_STEREO_LOGO_DEPTH));
+#endif
         SetFade(FADE_BLACK_WHITE | FADE_INSTANT, 8);
         advance = ADVANCE_NONE;
 
@@ -214,6 +223,9 @@ static void HandleTitlescreen(void) {
     gIntroState.counter++;
     switch (gIntroState.state) {
         case 0:
+#ifdef PC_PORT
+            Port_Stereo_SetBgDepth(PORT_STEREO_LOGO_BG, 0);
+#endif
             gIntroState.state = 1;
             gIntroState.subState = 0;
             gIntroState.timer = 30;

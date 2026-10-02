@@ -135,6 +135,7 @@ static bool32 Port_UA_HandleTitlescreen(void) {
     gIntroState.counter++;
     switch (gIntroState.state) {
         case 0:
+            Port_Stereo_SetBgDepth(PORT_STEREO_LOGO_BG, 0);
             gIntroState.state = 1;
             gIntroState.subState = 0;
             gIntroState.timer = 30;

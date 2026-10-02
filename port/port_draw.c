@@ -43,6 +43,12 @@ static int sRenderingPlayer = 0;
 u8 gPortStereoDirectDepth;
 u8 (*gPortStereoEntityDepth)(const Entity* entity);
 static u8 sStereoDepthTag;
+
+void Port_Stereo_SetBgDepth(unsigned bg, u8 depth) {
+    if (bg < MODE1_GBA_BG_COUNT) {
+        virtuappu_mode1_bg_stereo_depth[bg] = depth;
+    }
+}
 extern PlayerState gPlayerState;
 /* Region-select a ROM offset by the loaded ROM's game code (defined below). */
 static u32 RegionRomOffset(u32 usa, u32 eu, u32 jp);

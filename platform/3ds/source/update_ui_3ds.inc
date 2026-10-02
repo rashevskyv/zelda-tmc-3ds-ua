@@ -254,6 +254,9 @@ static void ScreenHelpText(char* out, size_t cap) {
             "СЛАБКА, СЕРЕДНЯ, СИЛЬНА - наскільки далеко розходяться шари; повзунок 3D плавно "
             "зменшує ефект. ВИМКНЕНО - картинка пласка за будь-якого положення повзунка. "
             "В експериментальному повному огляді 3D не працює.\n\n"
+            "РЕЛЬЄФ 3D - стіни, дерева, меблі й усе інше, крізь що не можна пройти, "
+            "підняті над підлогою, а не лежать у ній. Працює разом із ГЛИБИНОЮ 3D, "
+            "окрім СПІВВІДНОШЕННЯ: ШИРОКИЙ.\n\n"
             "ПАНЕЛЬ ЗВЕРХУ - показувати чи ховати серця, рупії й кнопки предметів поверх гри; "
             "вони є й на нижньому екрані.\n\n"
             "КОРЕКЦІЯ КОЛЬОРУ - кольори як на екрані GBA, м'якші за яскраві оригінальні.\n\n"
@@ -282,7 +285,9 @@ static void ScreenHelpText(char* out, size_t cap) {
         "(with Wide on New 3DS: experimental Full View).\n\n"
         "3D Depth: with the 3D slider up, text and HUD stay on the screen plane, characters "
         "sit a little deeper, the ground and far backgrounds deeper still. Low, Medium and "
-        "High set how far apart the layers go; Off keeps the picture flat.",
+        "High set how far apart the layers go; Off keeps the picture flat.\n\n"
+        "3D Relief: walls, trees, furniture and everything else that blocks the way "
+        "stand above the floor instead of lying in it (not in the Wide aspect).",
         kAspect[aspect >= 0 && aspect < 3 ? aspect : 0], kStyle[style >= 0 && style < 3 ? style : 0], now);
 }
 

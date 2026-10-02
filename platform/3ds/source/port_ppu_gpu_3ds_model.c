@@ -1016,6 +1016,10 @@ typedef struct PpuGpu3DSBgMap {
     uint16_t rowLo, colLo, rows, cols;
     uint16_t bgcnt;
     bool valid;
+    /* Stereo relief: a second copy of the raised cells' quads, in the same
+     * map space, drawn after the layer with a shift of its own. */
+    uint32_t reliefFirstIndex, reliefIndexCount;
+    uint8_t reliefUnits;
 } PpuGpu3DSBgMap;
 
 
@@ -1737,6 +1741,18 @@ static bool build_text_bg(const PpuGpu3DSFrameView* frame, PpuGpu3DSCache* cache
     append_layer_batches(cmd, &base, regions, regionCount, bldcnt,
                          read16(io, MODE1_IO_BLDALPHA),
                          read16(io, MODE1_IO_BLDY), emit, batchCursor);
+    if (fromMap && map->reliefIndexCount != 0) {
+        /* Same band, windows and effects as the layer itself; only the quads
+         * differ. The copy holds whole cells, so the band's scissor trims it
+         * exactly as it trims the layer. */
+        PpuGpu3DSBatch relief = base;
+        relief.firstIndex = map->reliefFirstIndex;
+        relief.indexCount = map->reliefIndexCount;
+        relief.relief = map->reliefUnits;
+        append_layer_batches(cmd, &relief, regions, regionCount, bldcnt,
+                             read16(io, MODE1_IO_BLDALPHA),
+                             read16(io, MODE1_IO_BLDY), emit, batchCursor);
+    }
     return true;
 }
 
@@ -2967,6 +2983,39 @@ static size_t merge_layer_bands(const PpuGpu3DSFrameView* frame, unsigned layer,
     return count;
 }
 
+/* Stereo relief: copies the quads of a background's raised cells out of its
+ * map slice into the per-frame geometry, so they can be drawn again nearer to
+ * the viewer. The slice keeps one quad per cell in row-major order whether or
+ * not it was rebuilt this frame, so the copy never has to decode a tile. */
+static bool build_relief(const PpuGpu3DSFrameView* frame, const uint8_t* grid,
+                         PpuGpu3DSCommandBuffer* cmd, PpuGpu3DSBgMap* map,
+                         size_t* vertexCursor, size_t* indexCursor) {
+    map->reliefIndexCount = 0;
+    if (!grid || frame->reliefUnits == 0 || !map->valid) return true;
+    const PpuGpu3DSVertex* slice = cmd->vertices + (size_t)(map->firstIndex / 6u) * 4u;
+    map->reliefFirstIndex = (uint32_t)*indexCursor;
+    for (unsigned r = 0; r < map->rows; ++r) {
+        const unsigned row = map->rowLo + r;
+        if (row >= frame->reliefRows) break;
+        const uint8_t* cells = grid + (size_t)row * frame->reliefCols;
+        for (unsigned c = 0; c < map->cols; ++c) {
+            const unsigned col = map->colLo + c;
+            if (col >= frame->reliefCols) break;
+            if (cells[col] == 0) continue;
+            if (!quad_room(cmd, vertexCursor, indexCursor)) return false;
+            memcpy(cmd->vertices + *vertexCursor,
+                   slice + ((size_t)r * map->cols + c) * 4u,
+                   4u * sizeof(*slice));
+            emit_indices(cmd, vertexCursor, indexCursor);
+            *vertexCursor += 4;
+            *indexCursor += 6;
+        }
+    }
+    map->reliefIndexCount = (uint32_t)(*indexCursor - map->reliefFirstIndex);
+    map->reliefUnits = frame->reliefUnits;
+    return true;
+}
+
 static bool build_scene(const PpuGpu3DSFrameView* frame, PpuGpu3DSCache* cache,
                         uint16_t* atlas, PpuGpu3DSCommandBuffer* cmd,
                         const PpuGpu3DSOamSet* oam, const PpuGpu3DSBand* bands,
@@ -3030,6 +3079,15 @@ static bool build_scene(const PpuGpu3DSFrameView* frame, PpuGpu3DSCache* cache,
         *indexCursor = dynamicIndex;
         cmd->dynamicFirstVertex = (uint32_t)dynamicVertex;
         cmd->dynamicFirstIndex = (uint32_t)dynamicIndex;
+        for (unsigned layer = 0; layer < PPU_GPU3DS_RELIEF_LAYERS; ++layer) {
+            const unsigned bg = frame->reliefBg[layer];
+            if (!frame->reliefCells[layer] || bg >= MODE1_GBA_BG_COUNT ||
+                (frame->affine && bg == 2u) || maps[bg].reliefIndexCount != 0)
+                continue;
+            if (!build_relief(frame, frame->reliefCells[layer], cmd, &maps[bg],
+                              vertexCursor, indexCursor))
+                return false;
+        }
     }
     PROFILE_END(PPU_GPU3DS_PHASE_MAPS);
 

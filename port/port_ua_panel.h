@@ -87,6 +87,7 @@ static const PortUaPanelEntry kPortUaStrings[] = {
     { "ASPECT RATIO", "СПІВВІДНОШЕННЯ" },
     { "DISPLAY STYLE", "ФІЛЬТР" },
     { "3D DEPTH", "ГЛИБИНА 3D" },
+    { "3D RELIEF", "РЕЛЬЄФ 3D" },
     /* settings values */
     { "ON", "УВІМКНЕНО" },
     { "OFF", "ВИМКНЕНО" },

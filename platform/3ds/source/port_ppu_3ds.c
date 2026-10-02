@@ -12,6 +12,7 @@
 #include "port_second_screen_3ds.h"
 #include "port_second_screen_state.h"
 #include "port_widescreen.h"
+#include "port_stereo.h"
 #include "platform_3ds.h"
 #include "platform_gpu_3ds.h"
 #include "top_view_3ds.h"
@@ -215,6 +216,9 @@ static TopFrameState SelectTopFrame(void) {
     return state;
 }
 
+_Static_assert((int)PORT_STEREO_RELIEF_LAYERS == (int)PPU_GPU3DS_RELIEF_LAYERS,
+               "the renderer takes one relief grid per map layer");
+
 static void FillPreparedFrameView(PpuGpu3DSFrameView* view) {
     memset(view, 0, sizeof(*view));
     view->width = sTopPresentWidth;
@@ -242,6 +246,17 @@ static void FillPreparedFrameView(PpuGpu3DSFrameView* view) {
     view->objClipEnable = virtuappu_mode1_obj_clip_enable;
     view->objClipMark = virtuappu_mode1_obj_clip_mark;
     view->objClipY = virtuappu_mode1_obj_clip_y;
+    /* Relief only matters to a frame that is drawn for two eyes. */
+    if (Port_Config_Get3DSStereoRelief() && PlatformGpu3DS_StereoDepth() > 0.0f) {
+        for (unsigned layer = 0; layer < PORT_STEREO_RELIEF_LAYERS; ++layer) {
+            if (gPortStereoReliefBg[layer] < 0) continue;
+            view->reliefCells[layer] = gPortStereoRelief[layer];
+            view->reliefBg[layer] = (uint8_t)gPortStereoReliefBg[layer];
+        }
+        view->reliefCols = PORT_STEREO_RELIEF_COLS;
+        view->reliefRows = PORT_STEREO_RELIEF_ROWS;
+        view->reliefUnits = PORT_STEREO_RELIEF_UNITS;
+    }
     bool anyShadow = false;
     for (unsigned bg = 0; bg < MODE1_GBA_BG_COUNT; ++bg) {
         view->wsShadowBaseTile[bg] = virtuappu_mode1_ws_shadow[bg]

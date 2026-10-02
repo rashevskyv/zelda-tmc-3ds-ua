@@ -271,6 +271,10 @@ enum { PORT_3DS_STEREO_OFF = 0, PORT_3DS_STEREO_DEFAULT = 2, PORT_3DS_STEREO_MAX
 int Port_Config_Get3DSStereoStrength(void);
 const char* Port_Config_Get3DSStereoStrengthName(void);
 void Port_Config_Cycle3DSStereoStrength(void);
+/* Stereoscopic 3D relief: solid cells of the room (walls, trees, furniture)
+ * stand above the floor instead of lying in it. */
+bool Port_Config_Get3DSStereoRelief(void);
+void Port_Config_Set3DSStereoRelief(bool on);
 /* Experimental presentation gate only. It does not add a persisted enum or
  * INI key: New 3DS + the existing Wide + Pixel Perfect selections opt in. */
 bool Port_Config_3DSFullViewComboEnabled(void);

@@ -202,6 +202,7 @@ enum {
     SS_SET_ASPECT_RATIO,
     SS_SET_DISPLAY_STYLE,
     SS_SET_STEREO_3D,     /* stereo_3d: OFF or how deep the 3D slider goes */
+    SS_SET_STEREO_RELIEF, /* stereo_relief: solid cells stand above the floor */
 #endif
     SS_SET_COUNT
 };
@@ -1882,6 +1883,7 @@ static const char* const kSettingLabels[SS_SET_COUNT] = {
     "RANDOMIZER",       "PANEL BACKDROP",     "SWAP SCREENS",
 #ifdef TMC_3DS
     "ASPECT RATIO",     "DISPLAY STYLE",     "3D DEPTH",
+    "3D RELIEF",
 #endif
 };
 
@@ -1932,6 +1934,7 @@ static int SettingsPageRows(int page, uint8_t* out) {
         out[n++] = SS_SET_ASPECT_RATIO;
         out[n++] = SS_SET_DISPLAY_STYLE;
         out[n++] = SS_SET_STEREO_3D;
+        out[n++] = SS_SET_STEREO_RELIEF;
         out[n++] = SS_SET_TOP_HUD;
         out[n++] = SS_SET_COLOR_CORRECTION;
         out[n++] = SS_SET_BACKDROP;
@@ -2182,6 +2185,7 @@ static int GetSettingState(int row, char* out, int outCap) {
         case SS_SET_STEREO_3D:
             snprintf(out, (size_t)outCap, "%s", Port_Config_Get3DSStereoStrengthName());
             return Port_Config_Get3DSStereoStrength() != PORT_3DS_STEREO_OFF;
+        case SS_SET_STEREO_RELIEF: on = Port_Config_Get3DSStereoRelief(); break;
 #endif
     }
     if (row != SS_SET_TOP_HUD) {
@@ -3300,6 +3304,9 @@ void Port_SecondScreen_OnTap(int x, int y, int longPress) {
                     /* Just the flag: the presenter reads it with the 3D
                      * slider every frame. */
                     Port_Config_Cycle3DSStereoStrength();
+                    break;
+                case SS_SET_STEREO_RELIEF:
+                    Port_Config_Set3DSStereoRelief(!Port_Config_Get3DSStereoRelief());
                     break;
 #endif
                 case SS_SET_FOLLOW:

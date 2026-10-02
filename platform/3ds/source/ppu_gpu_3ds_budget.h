@@ -15,6 +15,9 @@ enum {
     PPU_GPU3DS_WORDS_PER_DRAW = 128,
     PPU_GPU3DS_SETUP_WORDS = 4096,
     PPU_GPU3DS_PRESENT_WORDS = 8192,
+    /* Stereo relief repeats a batch once per pixel its cells stand out by in
+     * one eye; the backend never goes past this. */
+    PPU_GPU3DS_RELIEF_MAX_DRAWS = 4,
 };
 
 static inline size_t PpuGpu3DS_CommandWordsRequired(const PpuGpu3DSCommandBuffer* commands) {
@@ -24,7 +27,9 @@ static inline size_t PpuGpu3DS_CommandWordsRequired(const PpuGpu3DSCommandBuffer
     for (size_t i = 1; i < commands->batchCount; ++i) {
         const PpuGpu3DSBatch* batch = &commands->batches[i];
         if (batch->indexCount == 0) continue;
-        const size_t draws = batch->layer == PPU_GPU3DS_OBJ && !batch->objWindow ? 2u : 1u;
+        /* A relief batch is drawn once per pixel its cells stand out by. */
+        const size_t draws = batch->relief ? PPU_GPU3DS_RELIEF_MAX_DRAWS
+                             : batch->layer == PPU_GPU3DS_OBJ && !batch->objWindow ? 2u : 1u;
         if (words > SIZE_MAX - draws * PPU_GPU3DS_WORDS_PER_DRAW) return SIZE_MAX;
         words += draws * PPU_GPU3DS_WORDS_PER_DRAW;
     }

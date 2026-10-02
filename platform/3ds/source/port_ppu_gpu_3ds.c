@@ -71,6 +71,9 @@ static bool sRightEyeValid;
  * that depth in units. All zero in 2D. */
 typedef struct EyeShift {
     int bg[4], obj[4], tagged[PPU_GPU3DS_STEREO_TAG_UNITS];
+    /* What the tables were made from, for depths that are not in them. */
+    float pxPerUnit;
+    bool rightEye;
 } EyeShift;
 static EyeShift sEyeShift;
 static DVLB_s* sShader;
@@ -658,6 +661,24 @@ unsigned long long PortPpuGpu3DS_EmptyDrawsSkipped(void) {
  * stack HUD and text over the world, so priority 0 stays on the screen plane
  * and each step back sits a little deeper -- a diorama of flat layers rather
  * than real depth, which suits the cartoon art. */
+/* One eye's share of a disparity: the left eye takes the smaller half and
+ * moves left, the right eye the rest and moves right. */
+static int EyeShare(int disparity, bool rightEye) {
+    return rightEye ? disparity - disparity / 2 : -(disparity / 2);
+}
+
+/* Where a relief batch's cells end up for this eye: `relief` depth units in
+ * front of their own background, and never in front of the screen plane. */
+static int ReliefShiftPx(const PpuGpu3DSBatch* batch) {
+    const unsigned tag = batch->layer <= PPU_GPU3DS_BG3
+                                 ? virtuappu_mode1_bg_stereo_depth[batch->layer]
+                                 : 0u;
+    const int base = tag != 0u ? (int)tag - 1 : 3 * (int)(batch->priority & 3u);
+    const int units = base - (int)batch->relief;
+    return EyeShare(PpuGpu3DS_StereoUnitsPx(sEyeShift.pxPerUnit, units > 0 ? units : 0),
+                    sEyeShift.rightEye);
+}
+
 static int EyeShiftPx(const PpuGpu3DSBatch* batch) {
     if (batch->layer == PPU_GPU3DS_OBJ) {
         const unsigned tag = batch->objectIndex < MODE1_GBA_OAM_COUNT
@@ -667,8 +688,12 @@ static int EyeShiftPx(const PpuGpu3DSBatch* batch) {
             return sEyeShift.tagged[tag - 1u];
         return sEyeShift.obj[batch->priority & 3u];
     }
-    if (batch->layer != PPU_GPU3DS_BACKDROP && batch->priority <= 3u)
+    if (batch->layer <= PPU_GPU3DS_BG3 && batch->priority <= 3u) {
+        const unsigned tag = virtuappu_mode1_bg_stereo_depth[batch->layer];
+        if (tag != 0u && tag <= PPU_GPU3DS_STEREO_TAG_UNITS)
+            return sEyeShift.tagged[tag - 1u];
         return sEyeShift.bg[batch->priority];
+    }
     return 0;
 }
 
@@ -682,7 +707,39 @@ static u32 ShiftScissorEdge(unsigned edge, int px) {
     return (unsigned)shifted > sPreparedWidth ? sPreparedWidth : (u32)shifted;
 }
 
+static void DrawBatchAt(const PpuGpu3DSBatch* batch, int shiftPx);
+
 static void DrawBatch(const PpuGpu3DSBatch* batch) {
+    if (batch->relief == 0) {
+        DrawBatchAt(batch, EyeShiftPx(batch));
+        return;
+    }
+    /* Raised cells of a background, drawn over it once per pixel they stand
+     * out by: each copy one pixel nearer than the last, ending where the cells
+     * belong. The copies in between are what the eye reads as the side of the
+     * block -- without them a tall cell would hang over a bare strip of the
+     * floor behind it. Nothing to do in 2D, where both shifts are zero, or
+     * under alpha blending, where a second copy would blend twice. */
+    if (batch->effect == PPU_GPU3DS_EFFECT_ALPHA ||
+        (batch->color & PPU_GPU3DS_ALPHA_COMPLEMENT) != 0)
+        return;
+    const int from = EyeShiftPx(batch);
+    const int to = ReliefShiftPx(batch);
+    if (from == to) return;
+    const int step = to > from ? 1 : -1;
+    int shift = from;
+    int distance = (to - from) * step;
+    if (distance > PPU_GPU3DS_RELIEF_MAX_DRAWS) {
+        shift = to - step * PPU_GPU3DS_RELIEF_MAX_DRAWS;
+        distance = PPU_GPU3DS_RELIEF_MAX_DRAWS;
+    }
+    for (int i = 0; i < distance; ++i) {
+        shift += step;
+        DrawBatchAt(batch, shift);
+    }
+}
+
+static void DrawBatchAt(const PpuGpu3DSBatch* batch, int shiftPx) {
     /* A zero-count draw never signals completion on PICA200: the GX queue's
      * interrupt count never reaches the number of entries queued, and the next
      * C3D_FrameBegin waits on it forever. Frames that froze the console carried
@@ -691,7 +748,6 @@ static void DrawBatch(const PpuGpu3DSBatch* batch) {
         ++sEmptyDrawsSkipped;
         return;
     }
-    const int shiftPx = EyeShiftPx(batch);
     u32 scissorLeft = batch->scissorLeft, scissorRight = batch->scissorRight;
     float shiftClip = 0.0f;
     if (shiftPx != 0 && sPreparedWidth != 0) {
@@ -957,34 +1013,35 @@ bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerUnit) {
      * deeper layers left and the right eye right, which puts them behind the
      * screen. Whole pixels only -- the atlas is sampled nearest, and
      * half-texel offsets shimmer. */
-    EyeShift left = { 0 }, right = { 0 };
+    EyeShift left = { 0 }, right = { .rightEye = true };
     const bool stereo = pxPerUnit > 0.0f && sOutputTargetRight;
     sEdgeMaskPx = 0;
     if (stereo) {
         EyeShift disparity;
         PpuGpu3DS_StereoDisparity(pxPerUnit, disparity.bg, disparity.obj);
-        /* Only backgrounds fill the frame, so only they can bare an edge. */
-        int widest = 0;
-        for (size_t i = 1; i < sCommands.batchCount; ++i) {
-            const PpuGpu3DSBatch* batch = &sCommands.batches[i];
-            if (batch->layer > PPU_GPU3DS_BG3 || batch->priority > 3u ||
-                batch->indexCount == 0)
-                continue;
-            if (disparity.bg[batch->priority] > widest)
-                widest = disparity.bg[batch->priority];
-        }
-        sEdgeMaskPx = (unsigned)(widest - widest / 2);
+        left.pxPerUnit = right.pxPerUnit = pxPerUnit;
         for (unsigned i = 0; i < 4u; ++i) {
-            left.bg[i] = -(disparity.bg[i] / 2);
-            right.bg[i] = disparity.bg[i] - disparity.bg[i] / 2;
-            left.obj[i] = -(disparity.obj[i] / 2);
-            right.obj[i] = disparity.obj[i] - disparity.obj[i] / 2;
+            left.bg[i] = EyeShare(disparity.bg[i], false);
+            right.bg[i] = EyeShare(disparity.bg[i], true);
+            left.obj[i] = EyeShare(disparity.obj[i], false);
+            right.obj[i] = EyeShare(disparity.obj[i], true);
         }
         for (unsigned units = 0; units < PPU_GPU3DS_STEREO_TAG_UNITS; ++units) {
             const int px = PpuGpu3DS_StereoUnitsPx(pxPerUnit, (int)units);
-            left.tagged[units] = -(px / 2);
-            right.tagged[units] = px - px / 2;
+            left.tagged[units] = EyeShare(px, false);
+            right.tagged[units] = EyeShare(px, true);
         }
+        /* Only backgrounds fill the frame, so only they can bare an edge; the
+         * right eye takes the larger half of every disparity. */
+        int widest = 0;
+        sEyeShift = right;
+        for (size_t i = 1; i < sCommands.batchCount; ++i) {
+            const PpuGpu3DSBatch* batch = &sCommands.batches[i];
+            if (batch->layer > PPU_GPU3DS_BG3 || batch->indexCount == 0) continue;
+            const int px = EyeShiftPx(batch);
+            if (px > widest) widest = px;
+        }
+        sEdgeMaskPx = (unsigned)widest;
     }
     if (!DrawPass(sOutputTarget, &left)) return FinishDraw(false, startTick);
     if (stereo) sRightEyeValid = DrawPass(sOutputTargetRight, &right);

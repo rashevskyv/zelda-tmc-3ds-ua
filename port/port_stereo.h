@@ -19,9 +19,31 @@
 /* A depth as stored per OAM entry; 0 means "by priority". */
 #define PORT_STEREO_DEPTH(units) ((u8)((units) + 1))
 
+/* Depth for a whole background (0..3), or 0 for "by priority" again. For
+ * screens whose only layer is the picture itself -- a logo on a plain
+ * backdrop would otherwise sit as deep as a room's floor. */
+void Port_Stereo_SetBgDepth(unsigned bg, u8 depth);
 /* Depth for the sprites DrawDirect emits; set around the call, then back to 0. */
 extern u8 gPortStereoDirectDepth;
 /* Depth for an entity's sprites, or NULL to place every entity by priority. */
 extern u8 (*gPortStereoEntityDepth)(const Entity* entity);
+
+/* Relief: which 8x8 cells of the room's two map backgrounds stand above the
+ * floor, as depth units per cell, indexed [row * COLS + col] by the cell's
+ * unwrapped tilemap position. Refreshed once per frame together with the
+ * tilemaps it describes; gPortStereoReliefBg is each layer's background
+ * number, or -1 while its grid does not apply. */
+enum {
+    PORT_STEREO_RELIEF_COLS = 40,
+    PORT_STEREO_RELIEF_ROWS = 32,
+    /* How far solid cells stand above the floor: level with the sprites that
+     * walk between them, so a sprite is never nearer than a wall it is in
+     * front of, nor deeper than one it is behind. */
+    PORT_STEREO_RELIEF_UNITS = 2,
+};
+enum { PORT_STEREO_RELIEF_BOTTOM, PORT_STEREO_RELIEF_TOP, PORT_STEREO_RELIEF_LAYERS };
+extern u8 gPortStereoRelief[PORT_STEREO_RELIEF_LAYERS][PORT_STEREO_RELIEF_ROWS * PORT_STEREO_RELIEF_COLS];
+extern int gPortStereoReliefBg[PORT_STEREO_RELIEF_LAYERS];
+void Port_Stereo_CommitRelief(void);
 
 #endif /* PORT_STEREO_H */

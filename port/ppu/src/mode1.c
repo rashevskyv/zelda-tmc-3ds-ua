@@ -508,6 +508,7 @@ uint8_t virtuappu_mode1_obj_clip_mark_staged[MODE1_GBA_OAM_COUNT];
 uint8_t virtuappu_mode1_obj_y_negative_staged[MODE1_GBA_OAM_COUNT];
 int virtuappu_mode1_obj_clip_y_staged;
 int virtuappu_mode1_obj_clip_enable_staged;
+uint8_t virtuappu_mode1_bg_stereo_depth[MODE1_GBA_BG_COUNT];
 uint8_t virtuappu_mode1_obj_stereo_depth[MODE1_GBA_OAM_COUNT];
 uint8_t virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
 
