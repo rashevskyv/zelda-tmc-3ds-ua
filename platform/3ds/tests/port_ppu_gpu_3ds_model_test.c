@@ -1493,9 +1493,11 @@ int main(void) {
         CHECK(find_object_scissor(&renderCommand, 0, 0, 16, 0, 16) !=
               SIZE_MAX);
 
-        /* Stereo relief: a raised cell of a background is repeated as a batch
-         * of its own, holding that cell's quad out of the layer's map slice,
-         * and a frame without relief carries no such batch. */
+        /* Stereo relief: raised cells of a background are repeated in
+         * batches of their own, one per height, holding those cells' quads
+         * out of the layer's map slice -- tallest first, so the batch for a
+         * height is a prefix that also takes in everything taller. A frame
+         * without relief carries no such batch. */
         memset(renderIo[0], 0, MODE1_IO_MEM_SIZE);
         renderView.objClipEnable = false;
         renderView.frameDispcnt = MODE1_DISP_BG0_ON;
@@ -1504,46 +1506,64 @@ int main(void) {
         write16(renderIo[0], MODE1_IO_BG0CNT, 2);
         static uint8_t reliefCells[4 * 4];
         memset(reliefCells, 0, sizeof(reliefCells));
-        reliefCells[1 * 4 + 1] = 2;
+        reliefCells[0 * 4 + 1] = 1;
+        reliefCells[1 * 4 + 1] = 3;
         for (unsigned pass = 0; pass < 2; ++pass) {
             renderView.reliefCells[0] = pass == 0 ? reliefCells : NULL;
             renderView.reliefBg[0] = 0;
             renderView.reliefCols = 4;
             renderView.reliefRows = 4;
-            renderView.reliefUnits = 2;
             PpuGpu3DS_CacheInit(&cache);
             PpuGpu3DS_CacheBeginFrame(&cache, renderBg, renderObj, 26 + pass);
             PpuGpu3DS_CommandInit(&renderCommand, renderVertices, 32768,
                                   renderIndices, 49152, renderBatches, 4096);
             CHECK(PpuGpu3DS_BuildCommands(&renderView, &cache, atlas,
                                           &renderCommand));
-            size_t layerBatch = SIZE_MAX, reliefBatch = SIZE_MAX;
+            size_t layerBatch = SIZE_MAX;
+            size_t reliefBatch[PPU_GPU3DS_RELIEF_MAX_UNITS + 1];
+            for (unsigned units = 0; units <= PPU_GPU3DS_RELIEF_MAX_UNITS; ++units)
+                reliefBatch[units] = SIZE_MAX;
             for (size_t i = 1; i < renderCommand.batchCount; ++i) {
-                if (renderCommand.batches[i].layer != PPU_GPU3DS_BG0) continue;
-                if (renderCommand.batches[i].relief != 0)
-                    reliefBatch = i;
-                else
+                const PpuGpu3DSBatch* batch = &renderCommand.batches[i];
+                if (batch->layer != PPU_GPU3DS_BG0) continue;
+                if (batch->relief == 0) {
                     layerBatch = i;
+                } else {
+                    CHECK(batch->relief <= PPU_GPU3DS_RELIEF_MAX_UNITS);
+                    reliefBatch[batch->relief] = i;
+                }
             }
             CHECK(layerBatch != SIZE_MAX);
             if (pass == 1) {
-                CHECK(reliefBatch == SIZE_MAX);
+                CHECK(reliefBatch[1] == SIZE_MAX);
                 continue;
             }
-            CHECK(reliefBatch != SIZE_MAX && reliefBatch > layerBatch);
-            const PpuGpu3DSBatch* relief = &renderCommand.batches[reliefBatch];
+            /* One cell 1 unit tall and one 3 units tall: heights 1 to 3 each
+             * have a batch, drawn lowest first, and height 4 has none. */
+            CHECK(reliefBatch[1] != SIZE_MAX && reliefBatch[2] != SIZE_MAX &&
+                  reliefBatch[3] != SIZE_MAX && reliefBatch[4] == SIZE_MAX);
+            CHECK(layerBatch < reliefBatch[1] && reliefBatch[1] < reliefBatch[2] &&
+                  reliefBatch[2] < reliefBatch[3]);
             const PpuGpu3DSBatch* layer = &renderCommand.batches[layerBatch];
-            CHECK(relief->relief == 2 && relief->indexCount == 6);
-            CHECK(relief->priority == layer->priority &&
-                  relief->offsetX == layer->offsetX &&
-                  relief->offsetY == layer->offsetY);
-            /* 16x16 pixels at scroll 0 is a 2x2 window; cell (1, 1) is its
-             * fourth quad. */
-            const PpuGpu3DSVertex* source = renderVertices + 3u * 4u;
+            const PpuGpu3DSBatch* low = &renderCommand.batches[reliefBatch[1]];
+            const PpuGpu3DSBatch* mid = &renderCommand.batches[reliefBatch[2]];
+            const PpuGpu3DSBatch* high = &renderCommand.batches[reliefBatch[3]];
+            CHECK(low->indexCount == 12 && mid->indexCount == 6 &&
+                  high->indexCount == 6);
+            CHECK(low->firstIndex == mid->firstIndex &&
+                  mid->firstIndex == high->firstIndex);
+            CHECK(low->priority == layer->priority &&
+                  low->offsetX == layer->offsetX &&
+                  low->offsetY == layer->offsetY);
+            /* 16x16 pixels at scroll 0 is a 2x2 window: the tall cell (1, 1)
+             * is its fourth quad and comes first in the copy, the low cell
+             * (1, 0) is its second quad and comes after. */
             const PpuGpu3DSVertex* copy =
-                    renderVertices + (relief->firstIndex / 6u) * 4u;
-            CHECK(copy != source);
-            CHECK(memcmp(copy, source, 4u * sizeof(*source)) == 0);
+                    renderVertices + (low->firstIndex / 6u) * 4u;
+            CHECK(memcmp(copy, renderVertices + 3u * 4u,
+                         4u * sizeof(*copy)) == 0);
+            CHECK(memcmp(copy + 4, renderVertices + 1u * 4u,
+                         4u * sizeof(*copy)) == 0);
         }
         renderView.reliefCells[0] = NULL;
     }

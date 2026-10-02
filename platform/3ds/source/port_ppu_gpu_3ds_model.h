@@ -26,7 +26,11 @@ static inline bool PpuGpu3DS_ShouldUse(bool isNew3DS, bool initialized, bool dis
  * Whole pixels lose steps at low strengths, so a sprite is kept at least one
  * pixel in front of its ground whenever the ground has any depth, and never
  * in front of the layer that covers it. */
-enum { PPU_GPU3DS_STEREO_TAG_UNITS = 16, PPU_GPU3DS_RELIEF_LAYERS = 2 };
+enum {
+    PPU_GPU3DS_STEREO_TAG_UNITS = 16,
+    PPU_GPU3DS_RELIEF_LAYERS = 2,
+    PPU_GPU3DS_RELIEF_MAX_UNITS = 4,
+};
 
 static inline int PpuGpu3DS_StereoUnitsPx(float pxPerUnit, int units) {
     return (int)((float)units * pxPerUnit + 0.5f);
@@ -198,15 +202,16 @@ typedef struct PpuGpu3DSFrameView {
     bool objClipEnable;
     const uint8_t* objClipMark;
     int objClipY;
-    /* Stereoscopic 3D relief: which 8x8 cells of a text background stand
-     * above the rest of it, and by how many depth units, for up to two
-     * backgrounds. One byte per cell, reliefCols to a row, indexed by the
-     * cell's unwrapped tilemap column and row -- (HOFS >> 3) + n, not folded
-     * into the 32-cell screenblock. A NULL grid is no relief; a frame with
-     * none draws exactly as before. */
+    /* Stereoscopic 3D relief: how many depth units each 8x8 cell of a text
+     * background stands above the rest of it (0 = flat, at most
+     * PPU_GPU3DS_RELIEF_MAX_UNITS), for up to two backgrounds. One byte per
+     * cell, reliefCols to a row, indexed by the cell's unwrapped tilemap
+     * column and row -- (HOFS >> 3) + n, not folded into the 32-cell
+     * screenblock. A NULL grid is no relief; a frame with none draws exactly
+     * as before. */
     const uint8_t* reliefCells[PPU_GPU3DS_RELIEF_LAYERS];
     uint8_t reliefBg[PPU_GPU3DS_RELIEF_LAYERS];
-    uint8_t reliefCols, reliefRows, reliefUnits;
+    uint8_t reliefCols, reliefRows;
 } PpuGpu3DSFrameView;
 
 typedef struct PpuGpu3DSInterval {
@@ -259,9 +264,10 @@ typedef struct PpuGpu3DSBatch {
     uint16_t firstLine, lineCount, scissorLeft, scissorRight;
     uint8_t layer, priority, windowControl, target2;
     uint8_t effect, eva, evb, evy, objectIndex;
-    /* Non-zero on a batch that repeats a background's raised cells: how many
-     * depth units they stand in front of that background. Drawn only for a
-     * stereo frame, after the background itself. */
+    /* Non-zero on a batch that repeats a background's raised cells: every
+     * cell standing at least this many depth units in front of that
+     * background. Drawn only for a stereo frame, after the background itself
+     * and after the batch for one unit less, which it steps on from. */
     uint8_t relief;
     uint16_t color;
     bool objWindow, semiTransparent;

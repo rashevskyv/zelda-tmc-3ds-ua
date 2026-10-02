@@ -36,10 +36,10 @@ extern u8 (*gPortStereoEntityDepth)(const Entity* entity);
 enum {
     PORT_STEREO_RELIEF_COLS = 40,
     PORT_STEREO_RELIEF_ROWS = 32,
-    /* How far solid cells stand above the floor: level with the sprites that
-     * walk between them, so a sprite is never nearer than a wall it is in
-     * front of, nor deeper than one it is behind. */
-    PORT_STEREO_RELIEF_UNITS = 2,
+    /* The most a cell stands above the floor, in depth units: the top of
+     * anything four tiles tall or more. Sprites stand two units up, so the
+     * tallest things come nearer than the sprites walking past them. */
+    PORT_STEREO_RELIEF_UNITS = 4,
 };
 enum { PORT_STEREO_RELIEF_BOTTOM, PORT_STEREO_RELIEF_TOP, PORT_STEREO_RELIEF_LAYERS };
 extern u8 gPortStereoRelief[PORT_STEREO_RELIEF_LAYERS][PORT_STEREO_RELIEF_ROWS * PORT_STEREO_RELIEF_COLS];

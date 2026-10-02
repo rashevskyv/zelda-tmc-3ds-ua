@@ -218,6 +218,8 @@ static TopFrameState SelectTopFrame(void) {
 
 _Static_assert((int)PORT_STEREO_RELIEF_LAYERS == (int)PPU_GPU3DS_RELIEF_LAYERS,
                "the renderer takes one relief grid per map layer");
+_Static_assert((int)PORT_STEREO_RELIEF_UNITS == (int)PPU_GPU3DS_RELIEF_MAX_UNITS,
+               "the renderer draws exactly the heights the game hands it");
 
 static void FillPreparedFrameView(PpuGpu3DSFrameView* view) {
     memset(view, 0, sizeof(*view));
@@ -255,7 +257,6 @@ static void FillPreparedFrameView(PpuGpu3DSFrameView* view) {
         }
         view->reliefCols = PORT_STEREO_RELIEF_COLS;
         view->reliefRows = PORT_STEREO_RELIEF_ROWS;
-        view->reliefUnits = PORT_STEREO_RELIEF_UNITS;
     }
     bool anyShadow = false;
     for (unsigned bg = 0; bg < MODE1_GBA_BG_COUNT; ++bg) {

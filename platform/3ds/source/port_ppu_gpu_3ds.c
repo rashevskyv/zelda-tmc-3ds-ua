@@ -667,14 +667,14 @@ static int EyeShare(int disparity, bool rightEye) {
     return rightEye ? disparity - disparity / 2 : -(disparity / 2);
 }
 
-/* Where a relief batch's cells end up for this eye: `relief` depth units in
- * front of their own background, and never in front of the screen plane. */
-static int ReliefShiftPx(const PpuGpu3DSBatch* batch) {
+/* Where cells standing `relief` depth units in front of a batch's own
+ * background end up for this eye; never in front of the screen plane. */
+static int ReliefShiftPx(const PpuGpu3DSBatch* batch, unsigned relief) {
     const unsigned tag = batch->layer <= PPU_GPU3DS_BG3
                                  ? virtuappu_mode1_bg_stereo_depth[batch->layer]
                                  : 0u;
     const int base = tag != 0u ? (int)tag - 1 : 3 * (int)(batch->priority & 3u);
-    const int units = base - (int)batch->relief;
+    const int units = base - (int)relief;
     return EyeShare(PpuGpu3DS_StereoUnitsPx(sEyeShift.pxPerUnit, units > 0 ? units : 0),
                     sEyeShift.rightEye);
 }
@@ -714,17 +714,19 @@ static void DrawBatch(const PpuGpu3DSBatch* batch) {
         DrawBatchAt(batch, EyeShiftPx(batch));
         return;
     }
-    /* Raised cells of a background, drawn over it once per pixel they stand
-     * out by: each copy one pixel nearer than the last, ending where the cells
-     * belong. The copies in between are what the eye reads as the side of the
-     * block -- without them a tall cell would hang over a bare strip of the
-     * floor behind it. Nothing to do in 2D, where both shifts are zero, or
+    /* Raised cells of a background: every cell at least `relief` units tall,
+     * drawn over the copy one unit lower once per pixel that unit is worth,
+     * each copy a pixel nearer than the last. A tall cell is in every batch
+     * up to its own height, so it climbs a pixel at a time from the floor to
+     * where it belongs; the copies left behind on the way are what the eye
+     * reads as its side -- without them it would hang over a bare strip of
+     * the floor behind it. Nothing to do in 2D, where every shift is zero, or
      * under alpha blending, where a second copy would blend twice. */
     if (batch->effect == PPU_GPU3DS_EFFECT_ALPHA ||
         (batch->color & PPU_GPU3DS_ALPHA_COMPLEMENT) != 0)
         return;
-    const int from = EyeShiftPx(batch);
-    const int to = ReliefShiftPx(batch);
+    const int from = ReliefShiftPx(batch, batch->relief - 1u);
+    const int to = ReliefShiftPx(batch, batch->relief);
     if (from == to) return;
     const int step = to > from ? 1 : -1;
     int shift = from;
