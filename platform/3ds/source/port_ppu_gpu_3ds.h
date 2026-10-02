@@ -34,11 +34,11 @@ bool PortPpuGpu3DS_Init(void);
 void PortPpuGpu3DS_Shutdown(void);
 bool PortPpuGpu3DS_Preflight(const PpuGpu3DSFrameView* frame);
 bool PortPpuGpu3DS_DrawPrepared(void);
-/* Stereoscopic 3D. depth (0..1, normally the 3D slider) scales how far apart
- * the eyes see each priority level; 0 draws the ordinary single image. The
- * right eye's texture is available only for a frame drawn with depth > 0. */
-#define PPU_GPU3DS_STEREO_PX_PER_LEVEL 1.5f
-bool PortPpuGpu3DS_DrawPreparedStereo(float depth);
+/* Stereoscopic 3D. pxPerStep is how many GBA pixels apart the eyes see two
+ * neighbouring depth steps (see PpuGpu3DS_StereoDisparity); 0 draws the
+ * ordinary single image. The right eye's texture is available only for a
+ * frame drawn with pxPerStep > 0. */
+bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerStep);
 void* PortPpuGpu3DS_OutputTextureRight(void);
 bool PortPpuGpu3DS_BindPresentShader(void);
 void* PortPpuGpu3DS_OutputTexture(void);

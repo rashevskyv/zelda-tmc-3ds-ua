@@ -86,6 +86,7 @@ static const PortUaPanelEntry kPortUaStrings[] = {
     { "SWAP SCREENS", "ПОМІНЯТИ ЕКРАНИ" },
     { "ASPECT RATIO", "СПІВВІДНОШЕННЯ" },
     { "DISPLAY STYLE", "ФІЛЬТР" },
+    { "3D DEPTH", "ГЛИБИНА 3D" },
     /* settings values */
     { "ON", "УВІМКНЕНО" },
     { "OFF", "ВИМКНЕНО" },
@@ -105,6 +106,9 @@ static const PortUaPanelEntry kPortUaStrings[] = {
     { "BLUR", "РОЗМИТТЯ" },
     { "BILINEAR", "БІЛІНІЙНИЙ" },
     { "PIXEL PERFECT", "ПІКСЕЛЬ 1:1" },
+    { "LOW", "СЛАБКА" },
+    { "MEDIUM", "СЕРЕДНЯ" },
+    { "HIGH", "СИЛЬНА" },
     /* diagnostics */
     { "VERSION", "ВЕРСІЯ" },
     { "MODEL", "МОДЕЛЬ" },

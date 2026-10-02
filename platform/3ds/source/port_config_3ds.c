@@ -23,6 +23,7 @@ static _Atomic bool sAutosave;
 static bool sConsoleParity;
 static _Atomic Port3DSAspectRatio sAspectRatio = CONFIG_3DS_DEFAULT_ASPECT;
 static _Atomic Port3DSDisplayStyle sDisplayStyle = CONFIG_3DS_DEFAULT_DISPLAY;
+static _Atomic int sStereoStrength = PORT_3DS_STEREO_DEFAULT;
 /* The desktop file-select overlay is rendered on the gameplay screen and
  * has no useful 3DS interaction path. Keep the native second-screen UI
  * separate and leave this desktop-only overlay disabled. */
@@ -177,6 +178,7 @@ static void SaveConfig(void) {
     fprintf(file, "widescreen=%u\n", sAspectRatio == PORT_3DS_ASPECT_WIDE ? 1u : 0u);
     fprintf(file, "screen_aspect=%s\n", ConfigValues3DS_AspectName(sAspectRatio));
     fprintf(file, "display_style=%s\n", ConfigValues3DS_DisplayName(sDisplayStyle));
+    fprintf(file, "stereo_3d=%d\n", sStereoStrength);
     fprintf(file, "master_volume=%.2f\n", (double)sVolume);
     fprintf(file, "panel_backdrop=%d\n", sBackdrop);
     fprintf(file, "turbo_multiplier=%u\n", sTurboMultiplier);
@@ -301,6 +303,7 @@ void Port_Config_Load(const char* path) {
             } else if (strcmp(key, "display_style") == 0) {
                 sDisplayStyle = ConfigValues3DS_ParseDisplay(value);
             }
+            else if (strcmp(key, "stereo_3d") == 0) sStereoStrength = (int)strtol(value, NULL, 10);
             else if (strcmp(key, "master_volume") == 0) sVolume = strtof(value, NULL);
             else if (strcmp(key, "panel_backdrop") == 0) sBackdrop = (int)strtol(value, NULL, 10);
             else if (strcmp(key, "turbo_multiplier") == 0) sTurboMultiplier = (unsigned)strtoul(value, NULL, 10);
@@ -340,6 +343,8 @@ void Port_Config_Load(const char* path) {
     if (sVolume > 1.0f) sVolume = 1.0f;
     if (sBackdrop < 0 || sBackdrop > 6) sBackdrop = 0;
     if (sTurboMultiplier < 2 || sTurboMultiplier > 5) sTurboMultiplier = 5;
+    if (sStereoStrength < PORT_3DS_STEREO_OFF || sStereoStrength > PORT_3DS_STEREO_MAX)
+        sStereoStrength = PORT_3DS_STEREO_DEFAULT;
     if (sRandoItemPool < 0 || sRandoItemPool >= RANDO_ITEM_POOL_COUNT) sRandoItemPool = RANDO_ITEM_POOL_NORMAL;
     if (sRandoTunicColor < 0 || sRandoTunicColor > 6) sRandoTunicColor = 0;
     if (sRandoHeartColor < 0 || sRandoHeartColor > 6) sRandoHeartColor = 0;
@@ -597,6 +602,15 @@ const char* Port_Config_Get3DSDisplayStyleName(void) {
 }
 void Port_Config_Cycle3DSDisplayStyle(void) {
     sDisplayStyle = (Port3DSDisplayStyle)((sDisplayStyle + 1) % PORT_3DS_DISPLAY_COUNT);
+    SaveConfig();
+}
+int Port_Config_Get3DSStereoStrength(void) { return sStereoStrength; }
+const char* Port_Config_Get3DSStereoStrengthName(void) {
+    static const char* const names[PORT_3DS_STEREO_MAX + 1] = { "OFF", "LOW", "MEDIUM", "HIGH" };
+    return names[sStereoStrength];
+}
+void Port_Config_Cycle3DSStereoStrength(void) {
+    sStereoStrength = (sStereoStrength + 1) % (PORT_3DS_STEREO_MAX + 1);
     SaveConfig();
 }
 bool Port_Config_3DSFullViewComboEnabled(void) {

@@ -309,6 +309,27 @@ int main(void) {
         CHECK(PpuGpu3DS_ShouldUse(isNew3DS, initialized, disabled) ==
               (!isNew3DS && initialized && !disabled));
     }
+    /* Stereo depth: the HUD stays on the screen plane, depth never runs
+     * against the GBA's stacking order, and a sprite stands clear of its
+     * ground at every strength that gives the ground any depth at all. */
+    for (int tenths = 0; tenths <= 30; ++tenths) {
+        int bgPx[4], objPx[4];
+        PpuGpu3DS_StereoDisparity((float)tenths / 10.0f, bgPx, objPx);
+        CHECK(bgPx[0] == 0 && objPx[0] == 0);
+        for (int priority = 1; priority < 4; ++priority) {
+            CHECK(bgPx[priority] >= bgPx[priority - 1]);
+            CHECK(objPx[priority] >= bgPx[priority - 1]);
+            CHECK(objPx[priority] <= bgPx[priority]);
+            if (bgPx[priority] > bgPx[priority - 1])
+                CHECK(objPx[priority] < bgPx[priority]);
+        }
+    }
+    {
+        int bgPx[4], objPx[4];
+        PpuGpu3DS_StereoDisparity(1.5f, bgPx, objPx);
+        CHECK(bgPx[1] == 3 && bgPx[2] == 6 && bgPx[3] == 9);
+        CHECK(objPx[1] == 2 && objPx[2] == 5 && objPx[3] == 8);
+    }
     /* The 16-byte vertex stores UV as a fixed-point multiple of
      * 1/PPU_GPU3DS_UV_SCALE. That is only safe if it is lossless for every UV
      * the emitters can produce, so prove it rather than assume it: each atlas

@@ -66,9 +66,12 @@ static C3D_RenderTarget* sOutputTarget;
 static C3D_Tex sOutputTextureRight;
 static C3D_RenderTarget* sOutputTargetRight;
 static bool sRightEyeValid;
-/* Horizontal shift in GBA pixels for each depth level, for the eye being
- * drawn: level = BG/OBJ priority 0..3, 4 = the backdrop. All zero in 2D. */
-static int sEyeShift[5];
+/* Horizontal shift in GBA pixels for the eye being drawn: backgrounds and
+ * sprites by priority. All zero in 2D. */
+typedef struct EyeShift {
+    int bg[4], obj[4];
+} EyeShift;
+static EyeShift sEyeShift;
 static DVLB_s* sShader;
 static shaderProgram_s sProgram;
 static int sOffsetUniform = -1;
@@ -635,14 +638,17 @@ unsigned long long PortPpuGpu3DS_EmptyDrawsSkipped(void) {
     return sEmptyDrawsSkipped;
 }
 
-/* Depth of a batch for stereoscopic 3D: its GBA priority (0 nearest, 3
- * farthest), and the backdrop fill behind everything. The game already uses
- * priority to stack HUD and text over the world, so priority 0 stays on the
- * screen plane and each step back sits a little deeper -- a diorama of flat
- * layers rather than real depth, which suits the cartoon art. */
+/* Depth of a batch for stereoscopic 3D, from its place in the GBA's stacking
+ * order (see PpuGpu3DS_StereoDisparity): the game already uses priority to
+ * stack HUD and text over the world, so priority 0 stays on the screen plane
+ * and each step back sits a little deeper -- a diorama of flat layers rather
+ * than real depth, which suits the cartoon art. */
 static float EyeShiftClip(const PpuGpu3DSBatch* batch) {
-    const unsigned level = batch->priority <= 3u ? batch->priority : 4u;
-    const int px = sEyeShift[level];
+    int px = 0;
+    if (batch->layer == PPU_GPU3DS_OBJ)
+        px = sEyeShift.obj[batch->priority & 3u];
+    else if (batch->layer != PPU_GPU3DS_BACKDROP && batch->priority <= 3u)
+        px = sEyeShift.bg[batch->priority];
     return px && sPreparedWidth ? 2.0f * (float)px / (float)sPreparedWidth : 0.0f;
 }
 
@@ -736,10 +742,10 @@ static void ClearStencilPlane(void) {
                      sIndices + PPU_GPU3DS_CLEAR_FIRST_INDEX);
 }
 
-/* Draws the prepared batch list into one target with the given per-level
+/* Draws the prepared batch list into one target with the given per-layer
  * eye shifts (all zero for 2D). */
-static bool DrawPass(C3D_RenderTarget* target, const int shift[5]) {
-    memcpy(sEyeShift, shift, sizeof(sEyeShift));
+static bool DrawPass(C3D_RenderTarget* target, const EyeShift* shift) {
+    sEyeShift = *shift;
     sScissorKeyLow = 0xffffffffu;
     sScissorKeyHigh = 0xffffffffu;
     C3D_RenderTargetClear(target, C3D_CLEAR_ALL,
@@ -846,11 +852,11 @@ static bool DrawPass(C3D_RenderTarget* target, const int shift[5]) {
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
     sScissorKeyLow = 0xffffffffu;
     sScissorKeyHigh = 0xffffffffu;
-    memset(sEyeShift, 0, sizeof(sEyeShift));
+    sEyeShift = (EyeShift){ 0 };
     return true;
 }
 
-bool PortPpuGpu3DS_DrawPreparedStereo(float depth) {
+bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerStep) {
     const uint64_t startTick = svcGetSystemTick();
     /* citro2d programs the scissor for its own draws between our frames, so
      * the cache cannot survive across a frame boundary. */
@@ -867,21 +873,24 @@ bool PortPpuGpu3DS_DrawPreparedStereo(float depth) {
     }
     sPrepared = false;
     sRightEyeValid = false;
-    /* Disparity per depth level in GBA pixels, split between the eyes: the
-     * left eye moves deeper layers left and the right eye right, which puts
-     * them behind the screen. Whole pixels only -- the atlas is sampled
-     * nearest, and half-texel offsets shimmer. */
-    int left[5] = { 0 }, right[5] = { 0 };
-    const bool stereo = depth > 0.0f && sOutputTargetRight;
+    /* Each layer's disparity is split between the eyes: the left eye moves
+     * deeper layers left and the right eye right, which puts them behind the
+     * screen. Whole pixels only -- the atlas is sampled nearest, and
+     * half-texel offsets shimmer. */
+    EyeShift left = { 0 }, right = { 0 };
+    const bool stereo = pxPerStep > 0.0f && sOutputTargetRight;
     if (stereo) {
-        for (unsigned level = 1; level < 5u; ++level) {
-            const int disparity = (int)(level * depth * PPU_GPU3DS_STEREO_PX_PER_LEVEL + 0.5f);
-            left[level] = -(disparity / 2);
-            right[level] = disparity - disparity / 2;
+        EyeShift disparity;
+        PpuGpu3DS_StereoDisparity(pxPerStep, disparity.bg, disparity.obj);
+        for (unsigned i = 0; i < 4u; ++i) {
+            left.bg[i] = -(disparity.bg[i] / 2);
+            right.bg[i] = disparity.bg[i] - disparity.bg[i] / 2;
+            left.obj[i] = -(disparity.obj[i] / 2);
+            right.obj[i] = disparity.obj[i] - disparity.obj[i] / 2;
         }
     }
-    if (!DrawPass(sOutputTarget, left)) return FinishDraw(false, startTick);
-    if (stereo) sRightEyeValid = DrawPass(sOutputTargetRight, right);
+    if (!DrawPass(sOutputTarget, &left)) return FinishDraw(false, startTick);
+    if (stereo) sRightEyeValid = DrawPass(sOutputTargetRight, &right);
     return FinishDraw(true, startTick);
 }
 

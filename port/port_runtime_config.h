@@ -265,6 +265,12 @@ void Port_Config_Cycle3DSAspectRatio(void);
 int Port_Config_Get3DSDisplayStyle(void);
 const char* Port_Config_Get3DSDisplayStyleName(void);
 void Port_Config_Cycle3DSDisplayStyle(void);
+/* Stereoscopic 3D strength: 0 keeps the top screen flat whatever the 3D
+ * slider says, 1..3 are how far apart the slider at full pulls the layers. */
+enum { PORT_3DS_STEREO_OFF = 0, PORT_3DS_STEREO_DEFAULT = 2, PORT_3DS_STEREO_MAX = 3 };
+int Port_Config_Get3DSStereoStrength(void);
+const char* Port_Config_Get3DSStereoStrengthName(void);
+void Port_Config_Cycle3DSStereoStrength(void);
 /* Experimental presentation gate only. It does not add a persisted enum or
  * INI key: New 3DS + the existing Wide + Pixel Perfect selections opt in. */
 bool Port_Config_3DSFullViewComboEnabled(void);

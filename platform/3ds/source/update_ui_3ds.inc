@@ -249,6 +249,11 @@ static void ScreenHelpText(char* out, size_t cap) {
             "- БІЛІНІЙНИЙ: на весь екран, чіткіше.\n"
             "- ПІКСЕЛЬ 1:1: без збільшення, малий кадр посередині. "
             "Разом із ШИРОКИМ на New 3DS вмикає експериментальний повний огляд.\n\n"
+            "ГЛИБИНА 3D - об'ємна картинка, коли піднято повзунок 3D: написи й панель лишаються "
+            "на площині екрана, герої стоять трохи глибше, земля й далекі фони - ще глибше. "
+            "СЛАБКА, СЕРЕДНЯ, СИЛЬНА - наскільки далеко розходяться шари; повзунок 3D плавно "
+            "зменшує ефект. ВИМКНЕНО - картинка пласка за будь-якого положення повзунка. "
+            "В експериментальному повному огляді 3D не працює.\n\n"
             "ПАНЕЛЬ ЗВЕРХУ - показувати чи ховати серця, рупії й кнопки предметів поверх гри; "
             "вони є й на нижньому екрані.\n\n"
             "КОРЕКЦІЯ КОЛЬОРУ - кольори як на екрані GBA, м'якші за яскраві оригінальні.\n\n"
@@ -274,7 +279,10 @@ static void ScreenHelpText(char* out, size_t cap) {
         "Aspect Ratio: Wide shows more of the world, Original keeps GBA proportions, "
         "Stretch fills the screen with the GBA frame.\n\n"
         "Display Style: Blur is soft, Bilinear sharper, Pixel Perfect unscaled and small "
-        "(with Wide on New 3DS: experimental Full View).",
+        "(with Wide on New 3DS: experimental Full View).\n\n"
+        "3D Depth: with the 3D slider up, text and HUD stay on the screen plane, characters "
+        "sit a little deeper, the ground and far backgrounds deeper still. Low, Medium and "
+        "High set how far apart the layers go; Off keeps the picture flat.",
         kAspect[aspect >= 0 && aspect < 3 ? aspect : 0], kStyle[style >= 0 && style < 3 ? style : 0], now);
 }
 

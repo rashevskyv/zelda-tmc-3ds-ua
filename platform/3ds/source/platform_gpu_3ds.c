@@ -84,6 +84,7 @@ extern u32 __ctru_linear_heap_size;
 extern bool Port_Config_GetShowFps(void);
 extern int Port_Config_Get3DSAspectRatio(void);
 extern int Port_Config_Get3DSDisplayStyle(void);
+extern int Port_Config_Get3DSStereoStrength(void);
 extern bool Port_Config_3DSFullViewComboEnabled(void);
 extern bool Port_Config_GpuFrameSync(void);
 extern double Port_PPU_3DS_CurrentFps(void);
@@ -925,7 +926,11 @@ void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, 
 }
 
 float PlatformGpu3DS_StereoDepth(void) {
-    return sReady && sTopTargetRight ? osGet3DSliderState() : 0.0f;
+    const int strength = Port_Config_Get3DSStereoStrength();
+    if (!sReady || !sTopTargetRight || strength <= 0) return 0.0f;
+    /* LOW / MEDIUM / HIGH put neighbouring depth steps 1 / 1.5 / 2 GBA pixels
+     * apart with the slider at full. */
+    return osGet3DSliderState() * 0.5f * (float)(strength + 1);
 }
 
 bool PlatformGpu3DS_QueueRgba5551Readback(void* texturePointer, uint16_t* pixels) {

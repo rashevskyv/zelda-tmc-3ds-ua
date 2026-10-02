@@ -78,7 +78,9 @@ void PlatformGpu3DS_InvalidateTopBorder(void);
 void PlatformGpu3DS_DrawTopTexture(void* texture, unsigned width);
 /* Stereoscopic 3D: right may be NULL (both eyes then see left). */
 void PlatformGpu3DS_DrawTopTextureStereo(void* left, void* right, unsigned width);
-/* 3D slider position, 0..1; 0 when the right eye is unavailable. */
+/* Stereo strength for this frame: the 3D slider scaled by the 3D DEPTH
+ * setting, in GBA pixels per depth step (PpuGpu3DS_StereoDisparity). 0 when
+ * the slider is down, the setting is OFF or the right eye is unavailable. */
 float PlatformGpu3DS_StereoDepth(void);
 bool PlatformGpu3DS_QueueRgba5551Readback(void* texture, uint16_t* pixels);
 /* Returns true only when a Citro3D frame was active and submitted. */
