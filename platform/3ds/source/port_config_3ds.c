@@ -122,6 +122,10 @@ static float sSpeakerEqHz = 280.0f;
  * presentation span. The quick dump reports the same counters without adding
  * intermittent gameplay stalls. */
 static bool sFrameLog = false;
+/* Developer aid, ini only: once Link can move, warp to this room. Lets a test
+ * run reach any room of the game without playing to it. Never written back. */
+static unsigned sDebugWarp[5];
+static bool sDebugWarpSet;
 /* Compact Old 3DS upload surfaces (272x160 top, 320x240 bottom RGBA8 instead of
  * 512x256). Cuts the bottom clean-and-transfer from 491520 to 307200 bytes, and
  * that transfer is synchronous, so it shortens a recurring main-thread block on
@@ -283,6 +287,9 @@ void Port_Config_Load(const char* path) {
             else if (strcmp(key, "speaker_eq") == 0) sSpeakerEq = ParseBool(value);
             else if (strcmp(key, "speaker_eq_hz") == 0) sSpeakerEqHz = strtof(value, NULL);
             else if (strcmp(key, "frame_log") == 0) sFrameLog = ParseBool(value);
+            else if (strcmp(key, "debug_warp") == 0)
+                sDebugWarpSet = sscanf(value, "%i,%i,%i,%i,%i", (int*)&sDebugWarp[0], (int*)&sDebugWarp[1],
+                                       (int*)&sDebugWarp[2], (int*)&sDebugWarp[3], (int*)&sDebugWarp[4]) == 5;
             else if (strcmp(key, "compact_upload") == 0) sCompactUpload = ParseBool(value);
             else if (strcmp(key, "app_cpu_limit") == 0) sAppCpuLimit = (int)strtol(value, NULL, 10);
             else if (strcmp(key, "gpu_static_quad") == 0) sGpuStaticQuad = ParseBool(value);
@@ -372,6 +379,11 @@ bool Port_Config_AudioDspInterpLinear(void) { return sAudioDspInterpLinear; }
 bool Port_Config_SpeakerEq(void) { return sSpeakerEq; }
 float Port_Config_SpeakerEqHz(void) { return sSpeakerEqHz; }
 bool Port_Config_FrameLog(void) { return sFrameLog; }
+bool Port_Config_3DSDebugWarp(unsigned out[5]) {
+    if (!sDebugWarpSet) return false;
+    memcpy(out, sDebugWarp, sizeof(sDebugWarp));
+    return true;
+}
 bool Port_Config_CompactUpload(void) { return sCompactUpload; }
 int Port_Config_AppCpuLimit(void) { return sAppCpuLimit; }
 bool Port_Config_GpuStaticQuad(void) { return sGpuStaticQuad; }

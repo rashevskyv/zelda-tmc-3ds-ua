@@ -1969,6 +1969,15 @@ target("ppu_gpu_3ds_budget_test")
     add_files("platform/3ds/tests/ppu_gpu_3ds_budget_test.c")
 target_end()
 
+-- Stereoscopic 3D relief: how tall each cell of a room stands (port/port_stereo_relief.h).
+target("port_stereo_relief_test")
+    set_kind("binary")
+    set_languages("c11")
+    set_targetdir("build/pc")
+    add_includedirs("port")
+    add_files("platform/3ds/tests/port_stereo_relief_test.c")
+target_end()
+
 target("port_ppu_gpu_3ds_model_test")
     set_kind("binary")
     set_languages("c11")

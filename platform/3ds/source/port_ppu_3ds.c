@@ -218,7 +218,7 @@ static TopFrameState SelectTopFrame(void) {
 
 _Static_assert((int)PORT_STEREO_RELIEF_LAYERS == (int)PPU_GPU3DS_RELIEF_LAYERS,
                "the renderer takes one relief grid per map layer");
-_Static_assert((int)PORT_STEREO_RELIEF_UNITS == (int)PPU_GPU3DS_RELIEF_MAX_UNITS,
+_Static_assert((int)PORT_STEREO_RELIEF_MAX_CELL == (int)PPU_GPU3DS_RELIEF_MAX_UNITS,
                "the renderer draws exactly the heights the game hands it");
 
 static void FillPreparedFrameView(PpuGpu3DSFrameView* view) {
@@ -248,12 +248,26 @@ static void FillPreparedFrameView(PpuGpu3DSFrameView* view) {
     view->objClipEnable = virtuappu_mode1_obj_clip_enable;
     view->objClipMark = virtuappu_mode1_obj_clip_mark;
     view->objClipY = virtuappu_mode1_obj_clip_y;
-    /* Relief only matters to a frame that is drawn for two eyes. */
+    /* Relief only matters to a frame that is drawn for two eyes. The bottom
+     * layer is sunk only together with the grid that stands the ground back
+     * up, and raised again as soon as that grid is not in use. */
+    static int sunkBg = -1;
+    if (sunkBg >= 0) {
+        Port_Stereo_SetBgDepth((unsigned)sunkBg, 0);
+        sunkBg = -1;
+    }
     if (Port_Config_Get3DSStereoRelief() && PlatformGpu3DS_StereoDepth() > 0.0f) {
         for (unsigned layer = 0; layer < PORT_STEREO_RELIEF_LAYERS; ++layer) {
             if (gPortStereoReliefBg[layer] < 0) continue;
             view->reliefCells[layer] = gPortStereoRelief[layer];
             view->reliefBg[layer] = (uint8_t)gPortStereoReliefBg[layer];
+        }
+        const int bottomBg = gPortStereoReliefBg[PORT_STEREO_RELIEF_BOTTOM];
+        if (gPortStereoReliefSink > 0 && bottomBg >= 0) {
+            const uint16_t bgcnt = (uint16_t)(gIoMem[0x08 + bottomBg * 2] | (gIoMem[0x09 + bottomBg * 2] << 8));
+            Port_Stereo_SetBgDepth((unsigned)bottomBg,
+                                   PORT_STEREO_DEPTH(3 * (bgcnt & 3) + gPortStereoReliefSink));
+            sunkBg = bottomBg;
         }
         view->reliefCols = PORT_STEREO_RELIEF_COLS;
         view->reliefRows = PORT_STEREO_RELIEF_ROWS;

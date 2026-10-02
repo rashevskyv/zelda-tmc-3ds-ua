@@ -40,10 +40,16 @@ enum {
      * anything four tiles tall or more. Sprites stand two units up, so the
      * tallest things come nearer than the sprites walking past them. */
     PORT_STEREO_RELIEF_UNITS = 4,
+    /* The largest value a grid cell can hold: that, plus the unit everything
+     * stands up by when the layer is sunk for water. */
+    PORT_STEREO_RELIEF_MAX_CELL = PORT_STEREO_RELIEF_UNITS + 1,
 };
 enum { PORT_STEREO_RELIEF_BOTTOM, PORT_STEREO_RELIEF_TOP, PORT_STEREO_RELIEF_LAYERS };
 extern u8 gPortStereoRelief[PORT_STEREO_RELIEF_LAYERS][PORT_STEREO_RELIEF_ROWS * PORT_STEREO_RELIEF_COLS];
 extern int gPortStereoReliefBg[PORT_STEREO_RELIEF_LAYERS];
+/* Depth units the bottom layer must be drawn deeper by whenever its grid is
+ * used: its cells are measured from the bottom of the water, not the ground. */
+extern int gPortStereoReliefSink;
 void Port_Stereo_CommitRelief(void);
 
 #endif /* PORT_STEREO_H */

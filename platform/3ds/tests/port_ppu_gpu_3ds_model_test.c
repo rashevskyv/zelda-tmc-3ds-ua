@@ -1539,9 +1539,11 @@ int main(void) {
                 continue;
             }
             /* One cell 1 unit tall and one 3 units tall: heights 1 to 3 each
-             * have a batch, drawn lowest first, and height 4 has none. */
+             * have a batch, drawn lowest first, and the heights above have
+             * none. */
             CHECK(reliefBatch[1] != SIZE_MAX && reliefBatch[2] != SIZE_MAX &&
-                  reliefBatch[3] != SIZE_MAX && reliefBatch[4] == SIZE_MAX);
+                  reliefBatch[3] != SIZE_MAX && reliefBatch[4] == SIZE_MAX &&
+                  reliefBatch[5] == SIZE_MAX);
             CHECK(layerBatch < reliefBatch[1] && reliefBatch[1] < reliefBatch[2] &&
                   reliefBatch[2] < reliefBatch[3]);
             const PpuGpu3DSBatch* layer = &renderCommand.batches[layerBatch];

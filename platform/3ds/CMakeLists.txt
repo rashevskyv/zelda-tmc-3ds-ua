@@ -111,6 +111,7 @@ add_executable(tmc-3ds
     source/port_audio_3ds.c
     source/port_config_3ds.c
     source/port_dump_state_3ds.c
+    source/debug_warp_3ds.c
     source/port_rando_3ds.c
     source/port_asset_stubs_3ds.c
     source/port_optional_stubs_3ds.c

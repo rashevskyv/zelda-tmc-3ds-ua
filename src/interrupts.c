@@ -240,7 +240,9 @@ void WaitForNextFrame(void) {
     {
         /* Stereoscopic 3D: the relief grid describes the tilemap just copied. */
         extern void Port_Stereo_CommitRelief(void);
+        extern void Port_3DS_DebugWarpTick(void);
         Port_Stereo_CommitRelief();
+        Port_3DS_DebugWarpTick();
     }
 #endif
     FadeVBlank();

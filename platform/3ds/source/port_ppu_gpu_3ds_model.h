@@ -29,7 +29,7 @@ static inline bool PpuGpu3DS_ShouldUse(bool isNew3DS, bool initialized, bool dis
 enum {
     PPU_GPU3DS_STEREO_TAG_UNITS = 16,
     PPU_GPU3DS_RELIEF_LAYERS = 2,
-    PPU_GPU3DS_RELIEF_MAX_UNITS = 4,
+    PPU_GPU3DS_RELIEF_MAX_UNITS = 5,
 };
 
 static inline int PpuGpu3DS_StereoUnitsPx(float pxPerUnit, int units) {
