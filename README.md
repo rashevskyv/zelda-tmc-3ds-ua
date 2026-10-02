@@ -1,3 +1,74 @@
+# The Minish Cap 3DS — українська збірка
+
+Це українська збірка [The Minish Cap 3DS](https://github.com/EstebanPdN/zelda-tmc-3ds) —
+нативного порту *The Legend of Zelda: The Minish Cap* («Легенда про Зельду: Диво-Ковпак»)
+на Nintendo 3DS.
+
+- **Переклад гри:** проєкт [tloz-tmc-ua](https://gitlab.com/alexandrmudryi/tloz-tmc-ua).
+- **Порт на 3DS:** [EstebanPdN](https://github.com/EstebanPdN/zelda-tmc-3ds) на основі
+  [samyost1/tmc-android](https://github.com/samyost1/tmc-android),
+  [Project Picori](https://github.com/999sian/tmc) і [zeldaret/tmc](https://github.com/zeldaret/tmc)
+  (див. англійський опис нижче).
+
+Збірка додає до офіційного порту українську заставку, правильний напис «КІНЕЦЬ ГРИ» і переклад
+меню самого порту на нижньому екрані. Сам переклад гри (тексти, шрифти, графіка) міститься в
+пропатченому ромі.
+
+Ні ром, ні ігрові ресурси Nintendo тут не поширюються — потрібен ваш власний легально отриманий ром.
+
+## 1. Пропатчте ром
+
+1. Візьміть **USA-версію** рому *The Legend of Zelda: The Minish Cap* (`.gba`) і перевірте її SHA-1:
+
+   ```text
+   b4bd50e4131b027c334547b4524e2dbbd4227130
+   ```
+
+   Європейський ром для патча **не підходить**.
+
+2. Завантажте `tmc-ua-port-v1.3.xdelta` з [останнього релізу](../../releases/latest) і накладіть
+   його одним зі способів:
+   - у браузері: [RomPatcher.js](https://www.marcrobledo.com/RomPatcher.js/);
+   - у Windows: Delta Patcher;
+   - у Linux / macOS:
+
+     ```sh
+     xdelta3 -d -s "оригінал.gba" tmc-ua-port-v1.3.xdelta tmc-ua-port.gba
+     ```
+
+3. Перевірте SHA-1 пропатченого рому:
+
+   ```text
+   9c352d4a630b81122d0e8040336acc2af7e9c9bd
+   ```
+
+## 2. Встановіть порт
+
+1. Встановіть `tmc-3ds-v<версія>.cia` з [релізу](../../releases/latest) через FBI
+   (або запускайте `tmc-3ds-v<версія>.3dsx` через Homebrew Launcher).
+2. Покладіть пропатчений ром на SD-карту в теку:
+
+   ```text
+   sdmc:/3ds/The Minish Cap 3DS/
+   ```
+
+   Назва файлу може бути будь-якою, головне — розширення `.gba`. Інших `.gba` у цій теці
+   краще не лишати.
+
+З англійським (USA) чи європейським ромом ця збірка працює так само, як офіційна: усі українські
+зміни вмикаються лише тоді, коли завантажено пропатчений український ром.
+
+## Оновлення
+
+Пункт «ОНОВЛЕННЯ» в налаштуваннях порту завантажує українські збірки з цього репозиторію.
+
+## Для розробників
+
+Як улаштовані українські правки, як їх перевіряти і як підтягувати зміни з апстріму —
+у [ua/README.md](ua/README.md).
+
+---
+
 # The Minish Cap 3DS
 
 <img width="1672" height="941" alt="The Minish Cap 3DS" src="https://github.com/user-attachments/assets/db99e777-12a2-4222-86c3-7c8f14062586" />
