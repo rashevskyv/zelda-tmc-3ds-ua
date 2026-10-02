@@ -163,6 +163,7 @@ enum {
 #ifdef TMC_3DS
     SS_ACT_UPDATE_CHANNEL, SS_ACT_UPDATE_RELEASE, SS_ACT_UPDATE_ACTION,
     SS_ACT_UPDATE_PREV, SS_ACT_UPDATE_NEXT,
+    SS_ACT_SCREEN_HELP, /* ua-release: "?" on the Screen page */
 #endif
 };
 
@@ -2206,6 +2207,9 @@ static void PaintSettingsPanel(const SSurf* s, const SecondScreenSnapshot* snap,
     if (page != SS_SETTINGS_ROOT) {
         DrawSettingsBack(s, tl, ix0 + 4 * u, iy0, headerH, SettingsBackPage(page), u, ts);
     }
+#ifdef TMC_3DS
+    if (page == SS_SETTINGS_SCREEN) DrawScreenHelpButton(s, tl, ix1 - 4 * u, iy0, headerH, u, ts); /* ua-release */
+#endif
 
     float x0 = ix0 + 6 * u, x1 = ix1 - 6 * u;
     float y0 = iy0 + headerH + 12 * u;

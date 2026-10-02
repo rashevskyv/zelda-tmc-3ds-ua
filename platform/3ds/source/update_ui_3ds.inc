@@ -112,7 +112,13 @@ static void PaintUpdatePanel(const SSurf* s, TargetList* tl, float x0, float y0,
     UpdateButton(s,tl,x0,y1-26,x1,y1,action,SS_ACT_UPDATE_ACTION,confirm,u,ts);
 }
 
+static bool sScreenHelp; /* ua-release: help shown for the Screen page */
+
 static bool HandleUpdateTap(int action, int arg) {
+    if (action == SS_ACT_SCREEN_HELP) { /* ua-release */
+        UI_LOCK(); sScreenHelp = !sScreenHelp; UI_UNLOCK();
+        return true;
+    }
     if (!Port_SecondScreen_3DS_UpdateOpen()) return false;
     UpdateStatus st; Updater_GetStatus(&st);
     if (st.state == UPDATE_INSTALLING || st.state == UPDATE_DONE) return true;
@@ -157,7 +163,7 @@ static bool HandleUpdateTap(int action, int arg) {
 }
 
 
-/* ua-release: while the Screen settings page is open the top screen explains
+/* ua-release: the "?" on the Screen settings page shows on the top screen
  * what the current display choices do and what to expect from them. Players
  * took Pixel Perfect's small 1:1 frame, and Full View switching between
  * 400x240 rooms and that frame, for a broken display. */
@@ -165,9 +171,20 @@ extern bool Port_Config_3DSFullViewComboEnabled(void);
 
 static bool ScreenHelpOpen(void) {
     UI_LOCK();
-    bool open = sUi.tab == SS_TAB_SETTINGS && sUi.settingsPage == SS_SETTINGS_SCREEN;
+    const bool onPage = sUi.tab == SS_TAB_SETTINGS && sUi.settingsPage == SS_SETTINGS_SCREEN;
+    if (!onPage) sScreenHelp = false; /* leaving the page closes it */
+    const bool open = onPage && sScreenHelp;
     UI_UNLOCK();
     return open;
+}
+
+/* The "?" button opposite BACK in the Screen page header: shows the help on
+ * the top screen in place of the game until it is tapped again. */
+static void DrawScreenHelpButton(const SSurf* s, TargetList* tl, float x1, float y0, float h,
+                                 float u, int32_t ts) {
+    const bool open = ScreenHelpOpen();
+    DrawMenuButton(s, x1 - h, y0, x1, y0 + h, "?", open, open, u, ts);
+    AddTarget(tl, x1 - h, y0, x1, y0 + h, SS_ACT_SCREEN_HELP, 0);
 }
 
 bool Port_SecondScreen_3DS_TopPanelOpen(void) {
