@@ -104,7 +104,7 @@ static const PortUaPanelEntry kPortUaStrings[] = {
     { "NATIVE", "РІДНИЙ" },
     { "BLUR", "РОЗМИТТЯ" },
     { "BILINEAR", "БІЛІНІЙНИЙ" },
-    { "PIXEL PERFECT", "ПІКСЕЛЬНИЙ" },
+    { "PIXEL PERFECT", "ПІКСЕЛЬ 1:1" },
     /* diagnostics */
     { "VERSION", "ВЕРСІЯ" },
     { "MODEL", "МОДЕЛЬ" },
