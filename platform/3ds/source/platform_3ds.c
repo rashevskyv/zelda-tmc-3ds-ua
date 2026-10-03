@@ -647,6 +647,8 @@ static void PollInput(void) {
         circlePosition cstick = { 0, 0 };
         if (sIsNew3DS) hidCstickRead(&cstick);
         PortStereoEditor_Input(down, held, touching, touch.px, touch.py, cstick.dx, cstick.dy);
+        /* Closed: the panel under it still holds the editor's help line. */
+        if (!PortStereoEditor_IsOpen()) Port_SecondScreen_3DS_RequestRefresh();
         /* Only the Circle Pad still walks Link. */
         const u32 pad = KEY_CPAD_UP | KEY_CPAD_DOWN | KEY_CPAD_LEFT | KEY_CPAD_RIGHT;
         sHeld &= pad;

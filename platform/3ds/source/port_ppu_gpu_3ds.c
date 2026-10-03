@@ -1,5 +1,6 @@
 #include "platform_3ds.h"
 #include "port_ppu_gpu_3ds.h"
+#include "port_stereo_editor.h"
 
 #include "platform_gpu_3ds.h"
 #include "ppu_gpu_3ds_budget.h"
@@ -76,6 +77,10 @@ typedef struct EyeShift {
     bool rightEye;
 } EyeShift;
 static EyeShift sEyeShift;
+/* While the 3D editor is open its copy of the left eye on the bottom screen
+ * must show every layer where it really is, so the right eye takes the whole
+ * of each disparity instead of half: the same depth, only the left eye flat. */
+static bool sLeftEyeFlat;
 static DVLB_s* sShader;
 static shaderProgram_s sProgram;
 static int sOffsetUniform = -1;
@@ -664,6 +669,7 @@ unsigned long long PortPpuGpu3DS_EmptyDrawsSkipped(void) {
 /* One eye's share of a disparity: the left eye takes the smaller half and
  * moves left, the right eye the rest and moves right. */
 static int EyeShare(int disparity, bool rightEye) {
+    if (sLeftEyeFlat) return rightEye ? disparity : 0;
     return rightEye ? disparity - disparity / 2 : -(disparity / 2);
 }
 
@@ -1016,6 +1022,7 @@ bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerUnit) {
      * deeper layers left and the right eye right, which puts them behind the
      * screen. Whole pixels only -- the atlas is sampled nearest, and
      * half-texel offsets shimmer. */
+    sLeftEyeFlat = PortStereoEditor_IsOpen();
     EyeShift left = { 0 }, right = { .rightEye = true };
     const bool stereo = pxPerUnit > 0.0f && sOutputTargetRight;
     sEdgeMaskPx = 0;
