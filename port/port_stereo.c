@@ -17,6 +17,7 @@
  */
 #include "port_stereo.h"
 #include "port_stereo_relief.h"
+#include "port_stereo_edits.h"
 
 #include "global.h"
 #include "entity.h"
@@ -46,6 +47,7 @@ static s8 sHeightTop[ROOM_CELLS];
 static int sCols, sRows;
 static int sArea = -1, sRoom = -1;
 static u32 sAge;
+static u32 sEditsRevision;
 /* Whether the grids handed to the renderer this frame are in use; sprites
  * follow the ground only while the ground itself is drawn raised. */
 static bool32 sLive;
@@ -159,33 +161,65 @@ static void MeasureRoom(void) {
     }
     const PortStereoRoom room = { sCols, sRows, sKind, sRegion, sQueue };
     PortStereo_RoomHeights(&room, sTopSolid, sGround, sHeight, sHeightTop);
+    sEditsRevision = PortStereoEdits_Revision();
+    PortStereoEdits_ApplyRoom(gRoomControls.area, gRoomControls.room, sCols, sRows, sHeight, sHeightTop, sGround,
+                              PORT_STEREO_RELIEF_UNKNOWN);
 }
 
-/* Stereoscopic 3D depth for an entity's sprites: a unit in front of the
- * ground it stands on, wherever that ground is not the reference level. */
-static u8 EntityDepth(const Entity* entity) {
+/* The ground under an entity's feet, in units above the reference ground
+ * (0 when unknown), and the room cell it stands in; false when the relief
+ * does not place it. */
+static bool32 EntityGround(const Entity* entity, int* ground, int* col, int* row) {
     if (!sLive || entity->spriteRendering.b3 != sSpritePriority) {
-        return 0;
+        return FALSE;
     }
-    const int col = ((int)entity->x.HALF.HI - (int)gRoomControls.origin_x) >> 3;
-    int row = ((int)entity->y.HALF.HI - (int)gRoomControls.origin_y) >> 3;
-    if (col < 0 || row < 0 || col >= sCols || row >= sRows) {
-        return 0;
+    *col = ((int)entity->x.HALF.HI - (int)gRoomControls.origin_x) >> 3;
+    *row = ((int)entity->y.HALF.HI - (int)gRoomControls.origin_y) >> 3;
+    if (*col < 0 || *row < 0 || *col >= sCols || *row >= sRows) {
+        return FALSE;
     }
     /* A thing that is itself an entity (a pot, a sign) sits on a solid cell;
      * the ground it stands on is the first ground below it. */
-    int ground = sGround[row * sCols + col];
-    for (int down = 0; ground == PORT_STEREO_RELIEF_UNKNOWN && down < 4 && row + 1 < sRows; ++down) {
-        ground = sGround[++row * sCols + col];
+    int at = *row;
+    int found = sGround[at * sCols + *col];
+    for (int down = 0; found == PORT_STEREO_RELIEF_UNKNOWN && down < 4 && at + 1 < sRows; ++down) {
+        found = sGround[++at * sCols + *col];
     }
-    if (ground == PORT_STEREO_RELIEF_UNKNOWN || ground == 0) {
+    *ground = found == PORT_STEREO_RELIEF_UNKNOWN ? 0 : found;
+    return TRUE;
+}
+
+/* Stereoscopic 3D depth for an entity's sprites: a unit in front of the
+ * ground it stands on, wherever that ground is not the reference level, and
+ * as much nearer again as the 3D editor says. */
+static u8 EntityDepth(const Entity* entity) {
+    int ground, col, row;
+    if (!EntityGround(entity, &ground, &col, &row)) {
         return 0;
     }
-    int depth = 3 * sSpritePriority - 1 - ground;
-    if (depth < 0) {
+    const int edit = PortStereoEdits_EntityDelta(gRoomControls.area, gRoomControls.room, entity->kind, entity->id,
+                                                 entity->type, col, row);
+    if (ground == 0 && edit == 0) {
+        return 0;
+    }
+    int depth = 3 * sSpritePriority - 1 - ground - edit;
+    if (depth < -MODE1_STEREO_DEPTH_NEAR) {
+        depth = -MODE1_STEREO_DEPTH_NEAR;
+    }
+    if (depth < 0 && edit == 0) {
         depth = 0;
     }
     return PORT_STEREO_DEPTH(depth);
+}
+
+/* Its shadow lies on that ground, however near the editor brings it. */
+static u8 EntityShadowDepth(const Entity* entity) {
+    int ground, col, row;
+    if (!EntityGround(entity, &ground, &col, &row)) {
+        return 0;
+    }
+    const int depth = 3 * sSpritePriority - ground;
+    return PORT_STEREO_DEPTH(depth < 0 ? 0 : depth);
 }
 
 void Port_Stereo_CommitRelief(void) {
@@ -194,6 +228,7 @@ void Port_Stereo_CommitRelief(void) {
     gPortStereoReliefSink = 0;
     sLive = FALSE;
     gPortStereoEntityGround = EntityDepth;
+    gPortStereoEntityShadow = EntityShadowDepth;
 
     /* The drifting cloud shadows of the overworld are a blended overlay on
      * the third background, a priority above the ground they darken
@@ -231,7 +266,8 @@ void Port_Stereo_CommitRelief(void) {
         return;
     }
 
-    if (sArea != gRoomControls.area || sRoom != gRoomControls.room || ++sAge >= REMEASURE_FRAMES) {
+    if (sArea != gRoomControls.area || sRoom != gRoomControls.room || ++sAge >= REMEASURE_FRAMES ||
+        sEditsRevision != PortStereoEdits_Revision()) {
         sArea = gRoomControls.area;
         sRoom = gRoomControls.room;
         sAge = 0;
@@ -288,4 +324,8 @@ void Port_Stereo_CommitRelief(void) {
     gPortStereoReliefSink = bottomBg >= 0 ? -lowest : 0;
     sSpritePriority = bottomPriority;
     sLive = TRUE;
+}
+
+bool32 Port_Stereo_ReliefLive(void) {
+    return sLive;
 }

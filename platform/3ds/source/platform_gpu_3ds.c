@@ -4,6 +4,7 @@
 #include "port_ppu_gpu_3ds.h"
 #include "ppu_gpu_3ds_budget.h"
 #include "port_second_screen_3ds.h"
+#include "port_stereo_editor.h"
 
 #include <3ds.h>
 #include <citro2d.h>
@@ -47,6 +48,12 @@ static C3D_Tex sBottomTexture;
 static C3D_Tex sSharpBilinearTexture;
 static C3D_RenderTarget* sSharpBilinearTarget;
 static Tex3DS_SubTexture sTopSubtexture;
+/* The left eye's game picture as last presented by the PICA200 PPU, for the
+ * 3D editor's copy on the bottom screen: the texture, the texel the GBA
+ * frame starts at, and the frame it was drawn in. */
+static C3D_Tex* sEditorTexture;
+static float sEditorTexelX, sEditorTexelY;
+static uint32_t sEditorFrame;
 static Tex3DS_SubTexture sSharpBilinearSubtexture;
 static Tex3DS_SubTexture sBottomSubtexture;
 static uint32_t* sTopUpload;
@@ -265,7 +272,9 @@ bool PlatformGpu3DS_Init(bool old3dsProfile) {
      * and a stereo frame submits its batch list twice. */
     if (!C3D_Init(2 * PPU_GPU3DS_COMMAND_BUFFER_BYTES))
         goto fail_linear;
-    if (!C2D_Init(128)) {
+    /* 320 objects of 192 bytes still sit inside the 64 KiB cleaned below; the
+     * 3D editor's grid and markings take most of them. */
+    if (!C2D_Init(320)) {
         C3D_Fini();
         goto fail_linear;
     }
@@ -918,6 +927,10 @@ void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, 
     C3D_Tex* left = leftPointer;
     if (!sFrameActive || !left) return;
     DrawTopTexture(left, width, false);
+    sEditorTexture = left;
+    sEditorTexelX = sTopSubtexture.left * left->width;
+    sEditorTexelY = (1.0f - sTopSubtexture.top) * left->height;
+    sEditorFrame = sStats.frames;
     if (sStereoDepth > 0.0f) {
         sTopDraw = sTopTargetRight;
         DrawTopTexture(rightPointer ? (C3D_Tex*)rightPointer : left, width, false);
@@ -1000,6 +1013,38 @@ static void DrawUpdateTop(void) {
     PlatformGpu3DS_InvalidateTopBorder();
 }
 
+/* The 3D editor's picture, grid and selection over the top of the bottom
+ * screen; its help line below is in the painted image. */
+static void DrawStereoEditor(void) {
+    static PortStereoEditorView view;
+    PortStereoEditor_BuildView(&view);
+    C2D_Flush(); /* the bottom image goes with its own texture setup */
+    C2D_Prepare();
+    C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+    C2D_DrawRectSolid(0.0f, 0.0f, 0.0f, PORT_STEREO_EDITOR_VIEW_W, PORT_STEREO_EDITOR_VIEW_H,
+                      C2D_Color32(0, 0, 0, 255));
+    if (view.image && sEditorTexture && sEditorFrame == sStats.frames && view.srcW > 0.0f && view.srcH > 0.0f) {
+        const C3D_Tex* tex = sEditorTexture;
+        const Tex3DS_SubTexture sub = {
+            .width = (u16)view.srcW, .height = (u16)view.srcH,
+            .left = (sEditorTexelX + view.srcX) / tex->width,
+            .top = 1.0f - (sEditorTexelY + view.srcY) / tex->height,
+            .right = (sEditorTexelX + view.srcX + view.srcW) / tex->width,
+            .bottom = 1.0f - (sEditorTexelY + view.srcY + view.srcH) / tex->height,
+        };
+        const C2D_Image image = { .tex = sEditorTexture, .subtex = &sub };
+        const C2D_DrawParams params = {
+            .pos = { .x = view.dstX, .y = view.dstY, .w = view.dstW, .h = view.dstH },
+            .center = { 0.0f, 0.0f }, .depth = 0.0f, .angle = 0.0f,
+        };
+        C2D_DrawImage(image, &params, NULL);
+    }
+    for (int i = 0; i < view.rectCount; ++i) {
+        const PortStereoEditorRect* r = &view.rects[i];
+        C2D_DrawRectSolid(r->x, r->y, 0.0f, r->w, r->h, r->abgr);
+    }
+}
+
 bool PlatformGpu3DS_EndBottom(const uint32_t* pixels, bool changed) {
     if (!sFrameActive || !pixels) return false;
     DrawUpdateTop();
@@ -1034,7 +1079,8 @@ bool PlatformGpu3DS_EndBottom(const uint32_t* pixels, bool changed) {
             sStats.bottomTransferMaxTicks = transferTicks;
         ++sStats.bottomTransfers;
     }
-    if (!sOld3DSProfile || changed || !sBottomTargetValid) {
+    const bool editor = PortStereoEditor_IsOpen();
+    if (!sOld3DSProfile || changed || !sBottomTargetValid || editor) {
         sBottomSubtexture = (Tex3DS_SubTexture){
             .width = 320, .height = 240, .left = 0.0f, .top = 1.0f,
             .right = 320.0f / 512.0f, .bottom = 1.0f - 240.0f / 256.0f,
@@ -1048,7 +1094,8 @@ bool PlatformGpu3DS_EndBottom(const uint32_t* pixels, bool changed) {
         C2D_SceneBegin(sBottomTarget);
         C2D_DrawImage(image, &params, NULL);
         ConfigureAbgrTextureEnv();
-        sBottomTargetValid = true;
+        if (editor) DrawStereoEditor();
+        sBottomTargetValid = !editor;
         ++sStats.bottomTargetDraws;
     } else {
         /* The physical bottom image and its hitbox generation are unchanged.

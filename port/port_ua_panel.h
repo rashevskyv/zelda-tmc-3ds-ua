@@ -53,6 +53,7 @@ static const PortUaPanelEntry kPortUaStrings[] = {
     { "GAMEPLAY", "ГРА" },
     { "DEVELOPER", "ІНСТРУМЕНТИ" },
     { "OVERLAY", "НАКЛАДКА" },
+    { "3D EDITOR", "РЕДАКТОР 3D" },
     { "RANDOMIZER", "РАНДОМАЙЗЕР" },
     { "UPDATE", "ОНОВЛЕННЯ" },
     { "ZOOM", "МАСШТАБ" },

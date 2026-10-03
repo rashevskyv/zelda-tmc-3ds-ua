@@ -164,6 +164,7 @@ enum {
     SS_ACT_UPDATE_CHANNEL, SS_ACT_UPDATE_RELEASE, SS_ACT_UPDATE_ACTION,
     SS_ACT_UPDATE_PREV, SS_ACT_UPDATE_NEXT,
     SS_ACT_SCREEN_HELP, /* ua-release: "?" on the Screen page */
+    SS_ACT_STEREO_EDITOR, /* developer tools: the 3D relief editor */
 #endif
 };
 
@@ -2200,6 +2201,17 @@ static int GetSettingState(int row, char* out, int outCap) {
  * parchment, chips, font, and palette keep it native to this game. */
 #ifdef TMC_3DS
 #include "../platform/3ds/source/update_ui_3ds.inc"
+#include "port_stereo_editor.h"
+
+/* The 3D editor draws the picture over the top 200 rows itself; this is the
+ * help line under it. */
+static void PaintStereoEditor(const SSurf* s) {
+    char line1[160], line2[160];
+    PortStereoEditor_Status(line1, line2, sizeof(line1));
+    Port_SecondScreenTheme_DrawBackdrop(s->px, s->w, s->h, s->stride, 0, 0, s->w, s->h, 2);
+    UpdateBodyText(s, line1, 4, PORT_STEREO_EDITOR_VIEW_H + 2, SS_TEXT_INK, true);
+    UpdateBodyText(s, line2, 4, PORT_STEREO_EDITOR_VIEW_H + 20, SS_TEXT_NAVY, true);
+}
 #endif
 
 static void PaintSettingsPanel(const SSurf* s, const SecondScreenSnapshot* snap, TargetList* tl, float rx0,
@@ -2255,7 +2267,7 @@ static void PaintSettingsPanel(const SSurf* s, const SecondScreenSnapshot* snap,
         float gap = 10 * u;
         int rowCount = 3;
 #ifdef TMC_3DS
-        rowCount = 4;
+        rowCount = 5;
 #endif
         float rowH = (iy1 - y0 - (rowCount - 1) * gap) / rowCount;
         if (rowH > 92 * u) rowH = 92 * u;
@@ -2274,6 +2286,8 @@ static void PaintSettingsPanel(const SSurf* s, const SecondScreenSnapshot* snap,
                              SS_SET_SHOW_FPS, u, ts);
         DrawSettingsNavRow(s, tl, x0, y0 + 3 * (rowH + gap), x1, y0 + 4 * rowH + 3 * gap, "OVERLAY",
                            SS_SETTINGS_OVERLAY, u, ts);
+        DrawDeveloperActionRow(s, tl, x0, y0 + 4 * (rowH + gap), x1, y0 + 5 * rowH + 4 * gap, "3D EDITOR",
+                               "OPEN", SS_ACT_STEREO_EDITOR, u, ts);
 #else
         (void)loadStateFlashUntil;
         (void)loadStateResult;
@@ -2956,6 +2970,14 @@ void Port_SecondScreen_PaintInto(uint32_t* pixels, int width, int height, int st
     UI_LOCK();
     sMapCameraMoving = 0;
     UI_UNLOCK();
+    if (PortStereoEditor_IsOpen()) {
+        PaintStereoEditor(&s);
+        UI_LOCK();
+        sTapTargetCount = 0; /* the editor takes the stylus itself */
+        sUi.lastTick = tick;
+        UI_UNLOCK();
+        return;
+    }
 #endif
 
     if (!snap->inGame) {
@@ -3209,6 +3231,11 @@ void Port_SecondScreen_OnTap(int x, int y, int longPress) {
             sUi.loadConfirmActive = 1;
             UI_UNLOCK();
             break;
+#ifdef TMC_3DS
+        case SS_ACT_STEREO_EDITOR:
+            PortStereoEditor_Open();
+            break;
+#endif
         case SS_ACT_LOAD_CANCEL:
             UI_LOCK();
             sUi.loadConfirmActive = 0;

@@ -1,19 +1,42 @@
-/* Developer aid: `debug_warp=area,room,x,y,layer` in tmc3ds.ini sends Link to
+/* Developer aids. `debug_warp=area,room,x,y,layer` in tmc3ds.ini sends Link to
  * that room once he can move, so a test run (an emulator driven by a script,
  * say) can look at any room without playing to it. It takes the engine's own
  * exit path -- the one area exits and the PC port's debug menu use -- so the
- * room loads as it would in play. There is no UI for it and it is never
- * written back to the ini. */
+ * room loads as it would in play. `debug_stereo_editor=1` opens the 3D
+ * editor once he has been able to move for five seconds with no key held (an
+ * emulator cannot tap the bottom screen, and a script mashing through the
+ * intro would close it). There is no UI for either and neither is written back to the ini. */
 #include "global.h"
 #include "main.h"
 #include "player.h"
 #include "room.h"
 #include "save.h"
 #include "transitions.h"
+#include "common.h"
+
+#include "port_stereo_editor.h"
 
 extern bool Port_Config_3DSDebugWarp(unsigned out[5]);
+extern bool Port_Config_3DSDebugStereoEditor(void);
+
+static void DebugStereoEditorTick(void) {
+    static bool done;
+    static unsigned settled;
+    if (done || !Port_Config_3DSDebugStereoEditor()) {
+        return;
+    }
+    if (gMain.task != TASK_GAME || gPlayerState.controlMode != CONTROL_ENABLED || gInput.heldKeys != 0) {
+        settled = 0;
+        return;
+    }
+    if (++settled >= 300) {
+        done = true;
+        PortStereoEditor_Open();
+    }
+}
 
 void Port_3DS_DebugWarpTick(void) {
+    DebugStereoEditorTick();
     static bool done;
     static unsigned settled;
     unsigned warp[5];

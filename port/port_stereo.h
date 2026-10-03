@@ -32,6 +32,9 @@ extern u8 (*gPortStereoEntityDepth)(const Entity* entity);
 /* The same, asked second, for where the entity stands: the relief's answer
  * for sprites on ground that is not at the reference level. */
 extern u8 (*gPortStereoEntityGround)(const Entity* entity);
+/* Depth for an entity's shadow -- the ground it stands on, whatever the
+ * entity's own depth -- or 0 for "a unit behind the entity". */
+extern u8 (*gPortStereoEntityShadow)(const Entity* entity);
 
 /* Relief: which 8x8 cells of the room's two map backgrounds stand above the
  * floor, as depth units per cell, indexed [row * COLS + col] by the cell's
@@ -53,5 +56,7 @@ extern int gPortStereoReliefBg[PORT_STEREO_RELIEF_LAYERS];
  * used: its cells are measured from the bottom of the water, not the ground. */
 extern int gPortStereoReliefSink;
 void Port_Stereo_CommitRelief(void);
+/* Whether this frame's relief is drawn (3D slider up, relief on, in a room). */
+bool32 Port_Stereo_ReliefLive(void);
 
 #endif /* PORT_STEREO_H */

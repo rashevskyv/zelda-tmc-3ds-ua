@@ -126,6 +126,7 @@ static bool sFrameLog = false;
  * run reach any room of the game without playing to it. Never written back. */
 static unsigned sDebugWarp[5];
 static bool sDebugWarpSet;
+static bool sDebugStereoEditor;
 /* Compact Old 3DS upload surfaces (272x160 top, 320x240 bottom RGBA8 instead of
  * 512x256). Cuts the bottom clean-and-transfer from 491520 to 307200 bytes, and
  * that transfer is synchronous, so it shortens a recurring main-thread block on
@@ -287,6 +288,8 @@ void Port_Config_Load(const char* path) {
             else if (strcmp(key, "speaker_eq") == 0) sSpeakerEq = ParseBool(value);
             else if (strcmp(key, "speaker_eq_hz") == 0) sSpeakerEqHz = strtof(value, NULL);
             else if (strcmp(key, "frame_log") == 0) sFrameLog = ParseBool(value);
+            else if (strcmp(key, "debug_stereo_editor") == 0)
+                sDebugStereoEditor = atoi(value) != 0;
             else if (strcmp(key, "debug_warp") == 0)
                 sDebugWarpSet = sscanf(value, "%i,%i,%i,%i,%i", (int*)&sDebugWarp[0], (int*)&sDebugWarp[1],
                                        (int*)&sDebugWarp[2], (int*)&sDebugWarp[3], (int*)&sDebugWarp[4]) == 5;
@@ -379,6 +382,10 @@ bool Port_Config_AudioDspInterpLinear(void) { return sAudioDspInterpLinear; }
 bool Port_Config_SpeakerEq(void) { return sSpeakerEq; }
 float Port_Config_SpeakerEqHz(void) { return sSpeakerEqHz; }
 bool Port_Config_FrameLog(void) { return sFrameLog; }
+bool Port_Config_3DSDebugStereoEditor(void) {
+    return sDebugStereoEditor;
+}
+
 bool Port_Config_3DSDebugWarp(unsigned out[5]) {
     if (!sDebugWarpSet) return false;
     memcpy(out, sDebugWarp, sizeof(sDebugWarp));

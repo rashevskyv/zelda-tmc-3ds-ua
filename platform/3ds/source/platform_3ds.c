@@ -6,6 +6,7 @@
 #include "port_second_screen_3ds.h"
 #include "port_second_screen_sync_3ds.h"
 #include "port_ua_splash.h" /* tloz-tmc-ua */
+#include "port_stereo_editor.h"
 
 #include <3ds.h>
 #include <stdbool.h>
@@ -624,6 +625,33 @@ static void PollInput(void) {
         sDown &= ~keys;
     }
     hidCircleRead(&sCirclePosition);
+    if (PortStereoEditor_IsOpen()) {
+        /* The 3D editor takes every key, the stylus and the Circle Pad; the
+         * game goes on without input. */
+        static const struct { u32 key, editor; } kKeys[] = {
+            { KEY_DUP, PORT_STEREO_EDITOR_UP },       { KEY_DDOWN, PORT_STEREO_EDITOR_DOWN },
+            { KEY_DLEFT, PORT_STEREO_EDITOR_LEFT },   { KEY_DRIGHT, PORT_STEREO_EDITOR_RIGHT },
+            { KEY_A, PORT_STEREO_EDITOR_A },          { KEY_B, PORT_STEREO_EDITOR_B },
+            { KEY_X, PORT_STEREO_EDITOR_X },          { KEY_Y, PORT_STEREO_EDITOR_Y },
+            { KEY_L, PORT_STEREO_EDITOR_L },          { KEY_R, PORT_STEREO_EDITOR_R },
+            { KEY_START, PORT_STEREO_EDITOR_START },
+        };
+        u32 down = 0, held = 0;
+        for (size_t i = 0; i < sizeof(kKeys) / sizeof(kKeys[0]); ++i) {
+            if (sDown & kKeys[i].key) down |= kKeys[i].editor;
+            if (sHeld & kKeys[i].key) held |= kKeys[i].editor;
+        }
+        touchPosition touch = { 0, 0 };
+        const bool touching = (sHeld & KEY_TOUCH) != 0;
+        if (touching) hidTouchRead(&touch);
+        PortStereoEditor_Input(down, held, touching, touch.px, touch.py, sCirclePosition.dx, sCirclePosition.dy);
+        sHeld = sDown = 0;
+        memset(&sCirclePosition, 0, sizeof(sCirclePosition));
+        memset(&sCStickPosition, 0, sizeof(sCStickPosition));
+        sCStickHeld = false;
+        sQuickDumpComboWasHeld = false;
+        return;
+    }
     if (sIsNew3DS) {
         hidCstickRead(&sCStickPosition);
         sCStickHeld = (sHeld & (KEY_CSTICK_UP | KEY_CSTICK_DOWN | KEY_CSTICK_LEFT | KEY_CSTICK_RIGHT)) != 0u ||

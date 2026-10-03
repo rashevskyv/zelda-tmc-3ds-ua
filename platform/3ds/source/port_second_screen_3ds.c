@@ -233,6 +233,7 @@ int Port_SecondScreen_3DS_NeedsPeriodicRefresh(const SecondScreenSnapshot* snap,
                                                uint32_t paintedTick, int32_t width,
                                                int32_t height) {
     if (!snap || snap->introCinema) return 0;
+    if (PortStereoEditor_IsOpen()) return 1;
 
     const bool idleSettings = __atomic_load_n(&sIdleSettingsOpen, __ATOMIC_ACQUIRE) != 0;
     if (!snap->inGame && !idleSettings) {

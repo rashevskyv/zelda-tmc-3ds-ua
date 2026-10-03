@@ -43,6 +43,7 @@ static int sRenderingPlayer = 0;
 u8 gPortStereoDirectDepth;
 u8 (*gPortStereoEntityDepth)(const Entity* entity);
 u8 (*gPortStereoEntityGround)(const Entity* entity);
+u8 (*gPortStereoEntityShadow)(const Entity* entity);
 static u8 sStereoDepthTag;
 
 void Port_Stereo_SetBgDepth(unsigned bg, u8 depth) {
@@ -1036,9 +1037,11 @@ static void ProcessEntityForDraw(Entity* entity) {
     u8 shadowType = (*(u8*)&entity->spriteSettings & 0x30) >> 4;
     de->packed0 = (s16)(u16)(((u32)(u16)x << 6) | (u32)shadowType);
     /* Stereoscopic 3D: the shadow lies on the ground, a unit behind the
-     * entity that casts it. */
-    de->stereoDepth = sStereoDepthTag != 0 ? (u8)(sStereoDepthTag + 1)
-                                           : PORT_STEREO_DEPTH(3 * prioBits);
+     * entity that casts it unless the relief knows the ground itself. */
+    de->stereoDepth = gPortStereoEntityShadow ? gPortStereoEntityShadow(entity) : 0;
+    if (de->stereoDepth == 0) {
+        de->stereoDepth = sStereoDepthTag != 0 ? (u8)(sStereoDepthTag + 1) : PORT_STEREO_DEPTH(3 * prioBits);
+    }
 }
 
 /* ---- ProcessDrawList (port of sub_080B2534) ---- */
