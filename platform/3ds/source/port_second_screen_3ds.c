@@ -234,6 +234,15 @@ int Port_SecondScreen_3DS_NeedsPeriodicRefresh(const SecondScreenSnapshot* snap,
                                                int32_t height) {
     if (!snap || snap->introCinema) return 0;
     if (PortStereoEditor_IsOpen()) return 1;
+    if (PortStereoLink_Enabled()) {
+        int linkTab, linkPage;
+        UI_LOCK();
+        linkTab = sUi.tab;
+        linkPage = sUi.settingsPage;
+        UI_UNLOCK();
+        /* The developer page shows the link's address as it comes up. */
+        if (linkTab == SS_TAB_SETTINGS && linkPage == SS_SETTINGS_DEVELOPER) return 1;
+    }
 
     const bool idleSettings = __atomic_load_n(&sIdleSettingsOpen, __ATOMIC_ACQUIRE) != 0;
     if (!snap->inGame && !idleSettings) {

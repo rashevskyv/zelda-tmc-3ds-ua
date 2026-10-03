@@ -62,4 +62,17 @@ bool32 Port_Stereo_ReliefLive(void);
  * reference ground, per map layer; false when the room is not measured. */
 bool32 Port_Stereo_CellHeights(int col, int row, int* bottom, int* top);
 
+/* The current room as measured, for the PC editor: grids of cols x rows
+ * cells (row-major), corrected and as measured before the corrections, and
+ * the graphics key of each 16x16 map tile of the two layers (64 a row).
+ * Measures the room first if it is stale; false outside gameplay. */
+typedef struct PortStereoRoomView {
+    int cols, rows;
+    const u8* kind;
+    const s8 *ground, *height, *heightTop;
+    const s8 *autoGround, *autoHeight, *autoHeightTop;
+    const u32* tileHash[2];
+} PortStereoRoomView;
+bool32 Port_Stereo_RoomView(PortStereoRoomView* view);
+
 #endif /* PORT_STEREO_H */

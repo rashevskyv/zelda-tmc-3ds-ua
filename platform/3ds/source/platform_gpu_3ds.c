@@ -5,6 +5,7 @@
 #include "ppu_gpu_3ds_budget.h"
 #include "port_second_screen_3ds.h"
 #include "port_stereo_editor.h"
+#include "port_stereo_link.h"
 
 #include <3ds.h>
 #include <citro2d.h>
@@ -54,6 +55,8 @@ static Tex3DS_SubTexture sTopSubtexture;
 static C3D_Tex* sEditorTexture;
 static float sEditorTexelX, sEditorTexelY;
 static uint32_t sEditorFrame;
+/* Blinks the PC editor's highlight on the top screen. */
+static unsigned sFrameCounterForBlink;
 static Tex3DS_SubTexture sSharpBilinearSubtexture;
 static Tex3DS_SubTexture sBottomSubtexture;
 static uint32_t* sTopUpload;
@@ -826,6 +829,25 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
         if (plan.useSharpBilinear) ++sStats.sharpBilinearFallbacks;
     }
     if (configureAbgr) ConfigureAbgrTextureEnv();
+
+    /* The cells the PC editor points at, framed over the game picture. */
+    {
+        static float rects[150][4];
+        const int count = PortStereoLink_Highlight(rects, 150);
+        if (count > 0) {
+            C2D_Flush();
+            C2D_Prepare();
+            C2D_SceneBegin(sTopDraw);
+            const float sx = params.pos.w / (float)presentation->sourceWidth;
+            const float sy = params.pos.h / (float)presentation->sourceHeight;
+            const u32 colour = C2D_Color32(0, 230, 255, (sFrameCounterForBlink++ / 10) & 1 ? 170 : 70);
+            for (int i = 0; i < count; ++i) {
+                C2D_DrawRectSolid(params.pos.x + (rects[i][0] - (float)presentation->sourceX) * sx,
+                                  params.pos.y + (rects[i][1] - (float)presentation->sourceY) * sy, 0.5f,
+                                  rects[i][2] * sx, rects[i][3] * sy, colour);
+            }
+        }
+    }
 
     if (Port_Config_GetShowFps()) {
         char label[28];

@@ -26,6 +26,9 @@
 #include "room.h"
 #include "screen.h"
 #include "port_widescreen.h"
+#include "port_gba_mem.h"
+
+#include <string.h>
 
 extern bool Port_Config_Get3DSStereoRelief(void);
 extern float PlatformGpu3DS_StereoDepth(void);
@@ -44,6 +47,12 @@ static u16 sQueue[ROOM_CELLS];
 static s8 sGround[ROOM_CELLS];
 static s8 sHeight[ROOM_CELLS];
 static s8 sHeightTop[ROOM_CELLS];
+/* The same before the editors' corrections, for the PC editor. */
+static s8 sAutoGround[ROOM_CELLS];
+static s8 sAutoHeight[ROOM_CELLS];
+static s8 sAutoHeightTop[ROOM_CELLS];
+/* What each 16x16 map tile of the two layers looks like (tile rules). */
+static u32 sTileHash[2][64 * 64];
 static int sCols, sRows;
 static int sArea = -1, sRoom = -1;
 static u32 sAge;
@@ -133,6 +142,44 @@ static int MapBackground(const MapLayer* layer) {
     return -1;
 }
 
+/* The char block a map layer's background takes its tiles from: BGCNT bits
+ * 2-3 in 16 KiB steps. */
+static const u8* LayerCharBlock(const MapLayer* layer) {
+    if (layer->bgSettings == NULL) {
+        return NULL;
+    }
+    return gVram + ((layer->bgSettings->control >> 2) & 3) * 0x4000u;
+}
+
+/* The graphics key of every map tile in the room, 0 for a layer that is not
+ * shown. Tiles repeat, so each tile index is hashed once. */
+static void HashTiles(const MapLayer* layer, u32* hashes) {
+    static u32 sByIndex[TILESET_SIZE];
+    static u8 sDone[TILESET_SIZE];
+    const u8* chars = LayerCharBlock(layer);
+    memset(hashes, 0, sizeof(u32) * 64 * 64);
+    if (chars == NULL) {
+        return;
+    }
+    memset(sDone, 0, sizeof(sDone));
+    /* The char block wraps inside VRAM's 64 KiB of backgrounds. */
+    static u8 sChars[0x10000];
+    const size_t offset = (size_t)(chars - gVram);
+    memcpy(sChars, gVram + offset, 0x10000 - offset);
+    memcpy(sChars + (0x10000 - offset), gVram, offset);
+    const int tilesW = (sCols + 1) / 2, tilesH = (sRows + 1) / 2;
+    for (int ty = 0; ty < tilesH && ty < 64; ++ty) {
+        for (int tx = 0; tx < tilesW && tx < 64; ++tx) {
+            const u32 index = layer->mapData[tx | (ty << 6)] & (TILESET_SIZE - 1);
+            if (!sDone[index]) {
+                sByIndex[index] = PortStereoEdits_TileHash(&layer->subTiles[index * 4], sChars);
+                sDone[index] = 1;
+            }
+            hashes[tx | (ty << 6)] = sByIndex[index];
+        }
+    }
+}
+
 /* Measures the whole room. A room changes while it is on screen -- a door
  * opens, a bush is cut, the water drops -- so this runs again every second or
  * so as well as on entering a room; the spans between are short enough that a
@@ -161,9 +208,15 @@ static void MeasureRoom(void) {
     }
     const PortStereoRoom room = { sCols, sRows, sKind, sRegion, sQueue };
     PortStereo_RoomHeights(&room, sTopSolid, sGround, sHeight, sHeightTop);
+    const size_t cells = (size_t)sCols * (size_t)sRows;
+    memcpy(sAutoGround, sGround, cells);
+    memcpy(sAutoHeight, sHeight, cells);
+    memcpy(sAutoHeightTop, sHeightTop, cells);
+    HashTiles(&gMapBottom, sTileHash[0]);
+    HashTiles(&gMapTop, sTileHash[1]);
     sEditsRevision = PortStereoEdits_Revision();
     PortStereoEdits_ApplyRoom(gRoomControls.area, gRoomControls.room, sCols, sRows, sHeight, sHeightTop, sGround,
-                              PORT_STEREO_RELIEF_UNKNOWN);
+                              PORT_STEREO_RELIEF_UNKNOWN, sTileHash[0], sTileHash[1]);
 }
 
 /* The ground under an entity's feet, in units above the reference ground
@@ -337,5 +390,20 @@ bool32 Port_Stereo_CellHeights(int col, int row, int* bottom, int* top) {
     }
     *bottom = sHeight[row * sCols + col];
     *top = sHeightTop[row * sCols + col];
+    return TRUE;
+}
+
+bool32 Port_Stereo_RoomView(PortStereoRoomView* view) {
+    if (gMain.task != TASK_GAME || gMapBottom.bgSettings == NULL) {
+        return FALSE;
+    }
+    if (sArea != gRoomControls.area || sRoom != gRoomControls.room || sEditsRevision != PortStereoEdits_Revision()) {
+        sArea = gRoomControls.area;
+        sRoom = gRoomControls.room;
+        sAge = 0;
+        MeasureRoom();
+    }
+    *view = (PortStereoRoomView){ sCols,      sRows,       sKind,          sGround,     sHeight,
+                                  sHeightTop, sAutoGround, sAutoHeight, sAutoHeightTop, { sTileHash[0], sTileHash[1] } };
     return TRUE;
 }

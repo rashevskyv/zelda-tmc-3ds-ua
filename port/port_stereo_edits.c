@@ -8,17 +8,22 @@
  * later:
  *
  *   cell <area> <room> <b|t> <d|s> <row> <col0> <col1> <value>
+ *   tile <b|t> <hash> <quarter> <d|s> <value>
  *   ent <kind> <id> <type> all <delta>
  *   ent <kind> <id> <type> <area> <room> <col> <row> <delta>
  *
  * b/t is the bottom or top map layer, d adds the value to the measured height
- * and s replaces it. Area, room, kind, id and type are hex, as the developer
+ * and s replaces it. A tile rule holds for every cell, in any room, whose
+ * 16x16 map tile looks the same -- `hash` is PortStereoEdits_TileHash of its
+ * graphics, `quarter` which 8x8 cell of it (0 top-left, 1 top-right, 2, 3) --
+ * and room cells are applied over the rules. Area, room, kind, id and type are hex, as the developer
  * overlay shows them; the rest decimal. The first editor build wrote
  * rectangles instead (`rect <area> <room> <layers> <col0> <row0> <col1> <row1>
  * <delta>`); those are still read, as additions.
  */
 #include "port_stereo_edits.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +33,8 @@
 enum {
     SIDE = PORT_STEREO_EDIT_SIDE,
     MAX_ROOMS = 96,
+    MAX_RULES = 8192,
+    RULE_SLOTS = 16384, /* power of two, at most half full */
     MAX_ENTITIES = 256,
     ENTITY_REACH = 2,
     DELTA_LIMIT = 12,
@@ -49,10 +56,21 @@ typedef struct {
     s8 delta;
 } EntityEdit;
 
+typedef struct {
+    u32 hash;
+    u8 layer, quarter, flags;
+    s8 value;
+} TileRule;
+
 static RoomEdits* sRooms[MAX_ROOMS];
 static int sRoomCount;
 static EntityEdit sEntities[MAX_ENTITIES];
 static int sEntityCount;
+static TileRule sRules[MAX_RULES];
+static int sRuleCount;
+/* Rule index + 1 by key, rebuilt when the rules change. */
+static u16 sRuleSlots[RULE_SLOTS];
+static bool32 sRuleSlotsStale = TRUE;
 static bool32 sLoaded;
 static bool32 sDirty;
 static u32 sRevision = 1;
@@ -117,6 +135,93 @@ static void SetCells(RoomEdits* edits, int layer, int row, int col0, int col1, b
     }
 }
 
+static u32 RuleKey(u32 hash, int layer, int quarter) {
+    return (hash ^ ((u32)layer * 0x9e3779b9u) ^ ((u32)quarter * 0x85ebca6bu)) * 0xc2b2ae35u;
+}
+
+static void RebuildRuleSlots(void) {
+    memset(sRuleSlots, 0, sizeof(sRuleSlots));
+    for (int i = 0; i < sRuleCount; ++i) {
+        u32 slot = RuleKey(sRules[i].hash, sRules[i].layer, sRules[i].quarter) & (RULE_SLOTS - 1);
+        while (sRuleSlots[slot] != 0) {
+            slot = (slot + 1) & (RULE_SLOTS - 1);
+        }
+        sRuleSlots[slot] = (u16)(i + 1);
+    }
+    sRuleSlotsStale = FALSE;
+}
+
+static TileRule* FindRule(u32 hash, int layer, int quarter) {
+    if (sRuleSlotsStale) {
+        RebuildRuleSlots();
+    }
+    u32 slot = RuleKey(hash, layer, quarter) & (RULE_SLOTS - 1);
+    while (sRuleSlots[slot] != 0) {
+        TileRule* rule = &sRules[sRuleSlots[slot] - 1];
+        if (rule->hash == hash && rule->layer == layer && rule->quarter == quarter) {
+            return rule;
+        }
+        slot = (slot + 1) & (RULE_SLOTS - 1);
+    }
+    return NULL;
+}
+
+static void PutRule(u32 hash, int layer, int quarter, bool32 set, int value) {
+    TileRule* rule = FindRule(hash, layer, quarter);
+    if (rule == NULL) {
+        if (sRuleCount >= MAX_RULES) {
+            return;
+        }
+        rule = &sRules[sRuleCount++];
+        sRuleSlotsStale = TRUE;
+    }
+    *rule = (TileRule){ hash, (u8)layer, (u8)quarter, (u8)(set ? CELL_SET : 0),
+                        (s8)Clamp(value, -HEIGHT_LIMIT, HEIGHT_LIMIT) };
+}
+
+/* One line of the edits file. `onlyRoom` >= 0 keeps cell lines of that
+ * area << 8 | room only; `kinds` is a mask of which lines to take. */
+static void ParseLine(const char* line, int kinds, int onlyRoom) {
+    unsigned a, b, c, d, e, f, g;
+    char layer, mode;
+    int value;
+    if ((kinds & PORT_STEREO_EXPORT_CELLS) &&
+        sscanf(line, "cell %x %x %c %c %u %u %u %d", &a, &b, &layer, &mode, &c, &d, &e, &value) == 8) {
+        int col0 = (int)d, row0 = (int)c, col1 = (int)e, row1 = (int)c;
+        if (onlyRoom >= 0 && (int)((a << 8) | b) != onlyRoom) {
+            return;
+        }
+        RoomEdits* edits = FindRoom((int)a, (int)b, TRUE);
+        if (edits != NULL && (layer == 'b' || layer == 't') && (mode == 'd' || mode == 's') &&
+            ClipRect(&col0, &row0, &col1, &row1)) {
+            SetCells(edits, layer == 't', row0, col0, col1, mode == 's', Clamp(value, -HEIGHT_LIMIT, HEIGHT_LIMIT));
+        }
+    } else if ((kinds & PORT_STEREO_EXPORT_TILES) &&
+               sscanf(line, "tile %c %x %u %c %d", &layer, &a, &b, &mode, &value) == 5) {
+        if ((layer == 'b' || layer == 't') && (mode == 'd' || mode == 's') && b < 4) {
+            PutRule(a, layer == 't', (int)b, mode == 's', value);
+        }
+    } else if ((kinds & PORT_STEREO_EXPORT_CELLS) && onlyRoom < 0 &&
+               sscanf(line, "rect %x %x %u %u %u %u %u %d", &a, &b, &c, &d, &e, &f, &g, &value) == 8) {
+        int col0 = (int)d, row0 = (int)e, col1 = (int)f, row1 = (int)g;
+        RoomEdits* edits = FindRoom((int)a, (int)b, TRUE);
+        if (edits != NULL && ClipRect(&col0, &row0, &col1, &row1)) {
+            StepCells(edits, (int)c & PORT_STEREO_EDIT_BOTH, col0, row0, col1, row1, value);
+        }
+    } else if ((kinds & PORT_STEREO_EXPORT_ENTITIES) && sscanf(line, "ent %x %x %x all %d", &a, &b, &c, &value) == 4) {
+        if (sEntityCount < MAX_ENTITIES) {
+            sEntities[sEntityCount++] = (EntityEdit){ { (u8)a, (u8)b, (u8)c, TRUE, 0, 0, 0, 0 },
+                                                      (s8)Clamp(value, -DELTA_LIMIT, DELTA_LIMIT) };
+        }
+    } else if ((kinds & PORT_STEREO_EXPORT_ENTITIES) &&
+               sscanf(line, "ent %x %x %x %x %x %u %u %d", &a, &b, &c, &d, &e, &f, &g, &value) == 8) {
+        if (sEntityCount < MAX_ENTITIES && f < 256 && g < 256) {
+            sEntities[sEntityCount++] = (EntityEdit){ { (u8)a, (u8)b, (u8)c, FALSE, (u8)d, (u8)e, (u8)f, (u8)g },
+                                                      (s8)Clamp(value, -DELTA_LIMIT, DELTA_LIMIT) };
+        }
+    }
+}
+
 void PortStereoEdits_Load(void) {
     if (sLoaded) {
         return;
@@ -128,84 +233,112 @@ void PortStereoEdits_Load(void) {
     }
     char line[160];
     while (fgets(line, sizeof(line), file) != NULL) {
-        unsigned a, b, c, d, e, f, g;
-        char layer, mode;
-        int value;
-        if (sscanf(line, "cell %x %x %c %c %u %u %u %d", &a, &b, &layer, &mode, &c, &d, &e, &value) == 8) {
-            int col0 = (int)d, row0 = (int)c, col1 = (int)e, row1 = (int)c;
-            RoomEdits* edits = FindRoom((int)a, (int)b, TRUE);
-            if (edits != NULL && (layer == 'b' || layer == 't') && (mode == 'd' || mode == 's') &&
-                ClipRect(&col0, &row0, &col1, &row1)) {
-                SetCells(edits, layer == 't', row0, col0, col1, mode == 's',
-                         Clamp(value, -HEIGHT_LIMIT, HEIGHT_LIMIT));
-            }
-        } else if (sscanf(line, "rect %x %x %u %u %u %u %u %d", &a, &b, &c, &d, &e, &f, &g, &value) == 8) {
-            int col0 = (int)d, row0 = (int)e, col1 = (int)f, row1 = (int)g;
-            RoomEdits* edits = FindRoom((int)a, (int)b, TRUE);
-            if (edits != NULL && ClipRect(&col0, &row0, &col1, &row1)) {
-                StepCells(edits, (int)c & PORT_STEREO_EDIT_BOTH, col0, row0, col1, row1, value);
-            }
-        } else if (sscanf(line, "ent %x %x %x all %d", &a, &b, &c, &value) == 4) {
-            if (sEntityCount < MAX_ENTITIES) {
-                sEntities[sEntityCount++] = (EntityEdit){ { (u8)a, (u8)b, (u8)c, TRUE, 0, 0, 0, 0 },
-                                                          (s8)Clamp(value, -DELTA_LIMIT, DELTA_LIMIT) };
-            }
-        } else if (sscanf(line, "ent %x %x %x %x %x %u %u %d", &a, &b, &c, &d, &e, &f, &g, &value) == 8) {
-            if (sEntityCount < MAX_ENTITIES && f < 256 && g < 256) {
-                sEntities[sEntityCount++] =
-                    (EntityEdit){ { (u8)a, (u8)b, (u8)c, FALSE, (u8)d, (u8)e, (u8)f, (u8)g },
-                                  (s8)Clamp(value, -DELTA_LIMIT, DELTA_LIMIT) };
-            }
-        }
+        ParseLine(line, PORT_STEREO_EXPORT_ALL, -1);
     }
     fclose(file);
     ++sRevision;
+}
+
+/* Where edits are written: a file, or a growing buffer. */
+typedef struct {
+    FILE* file;
+    char* text;
+    size_t length, capacity;
+    bool32 failed;
+} Out;
+
+static void OutPrintf(Out* out, const char* format, ...) {
+    char line[160];
+    va_list args;
+    va_start(args, format);
+    const int n = vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+    if (n <= 0) {
+        return;
+    }
+    if (out->file != NULL) {
+        fputs(line, out->file);
+        return;
+    }
+    if (out->length + (size_t)n + 1 > out->capacity) {
+        const size_t capacity = (out->capacity + (size_t)n + 1) * 2;
+        char* text = realloc(out->text, capacity);
+        if (text == NULL) {
+            out->failed = TRUE;
+            return;
+        }
+        out->text = text;
+        out->capacity = capacity;
+    }
+    memcpy(out->text + out->length, line, (size_t)n + 1);
+    out->length += (size_t)n;
+}
+
+static void WriteRoomCells(Out* out, const RoomEdits* edits) {
+    for (int layer = 0; layer < 2; ++layer) {
+        for (int row = 0; row < SIDE; ++row) {
+            const u8* flags = &edits->flags[layer][row * SIDE];
+            const s8* value = &edits->value[layer][row * SIDE];
+            for (int col = 0; col < SIDE;) {
+                if (!(flags[col] & CELL_HAS)) {
+                    ++col;
+                    continue;
+                }
+                int end = col;
+                while (end + 1 < SIDE && flags[end + 1] == flags[col] && value[end + 1] == value[col]) {
+                    ++end;
+                }
+                OutPrintf(out, "cell %02x %02x %c %c %d %d %d %d\n", edits->area, edits->room, layer ? 't' : 'b',
+                          (flags[col] & CELL_SET) ? 's' : 'd', row, col, end, value[col]);
+                col = end + 1;
+            }
+        }
+    }
+}
+
+static void Write(Out* out, int kinds, int onlyRoom) {
+    if (kinds & PORT_STEREO_EXPORT_CELLS) {
+        for (int i = 0; i < sRoomCount; ++i) {
+            if (onlyRoom < 0 || ((sRooms[i]->area << 8) | sRooms[i]->room) == onlyRoom) {
+                WriteRoomCells(out, sRooms[i]);
+            }
+        }
+    }
+    if (kinds & PORT_STEREO_EXPORT_TILES) {
+        for (int i = 0; i < sRuleCount; ++i) {
+            const TileRule* r = &sRules[i];
+            OutPrintf(out, "tile %c %08lx %u %c %d\n", r->layer ? 't' : 'b', (unsigned long)r->hash, r->quarter,
+                      (r->flags & CELL_SET) ? 's' : 'd', r->value);
+        }
+    }
+    if (kinds & PORT_STEREO_EXPORT_ENTITIES) {
+        for (int i = 0; i < sEntityCount; ++i) {
+            const PortStereoEntityKey* k = &sEntities[i].key;
+            if (k->all) {
+                OutPrintf(out, "ent %02x %02x %02x all %d\n", k->kind, k->id, k->type, sEntities[i].delta);
+            } else {
+                OutPrintf(out, "ent %02x %02x %02x %02x %02x %u %u %d\n", k->kind, k->id, k->type, k->area, k->room,
+                          k->col, k->row, sEntities[i].delta);
+            }
+        }
+    }
 }
 
 bool32 PortStereoEdits_Save(void) {
     if (!sDirty) {
         return TRUE;
     }
-    FILE* file = fopen(STEREO_EDITS_FILE ".tmp", "w");
-    if (file == NULL) {
+    Out out = { fopen(STEREO_EDITS_FILE ".tmp", "w"), NULL, 0, 0, FALSE };
+    if (out.file == NULL) {
         return FALSE;
     }
-    fputs("# The Minish Cap 3DS: stereo 3D relief corrections (developer tools, 3D editor)\n"
+    fputs("# The Minish Cap 3DS: stereo 3D relief corrections (3D editor, PC editor)\n"
           "# cell <area> <room> <b|t layer> <d add|s set> <row> <col0> <col1> <value>\n"
+          "# tile <b|t> <graphics hash> <quarter> <d|s> <value>\n"
           "# ent <kind> <id> <type> all <delta> | ent <kind> <id> <type> <area> <room> <col> <row> <delta>\n",
-          file);
-    for (int i = 0; i < sRoomCount; ++i) {
-        const RoomEdits* edits = sRooms[i];
-        for (int layer = 0; layer < 2; ++layer) {
-            for (int row = 0; row < SIDE; ++row) {
-                const u8* flags = &edits->flags[layer][row * SIDE];
-                const s8* value = &edits->value[layer][row * SIDE];
-                for (int col = 0; col < SIDE;) {
-                    if (!(flags[col] & CELL_HAS)) {
-                        ++col;
-                        continue;
-                    }
-                    int end = col;
-                    while (end + 1 < SIDE && flags[end + 1] == flags[col] && value[end + 1] == value[col]) {
-                        ++end;
-                    }
-                    fprintf(file, "cell %02x %02x %c %c %d %d %d %d\n", edits->area, edits->room, layer ? 't' : 'b',
-                            (flags[col] & CELL_SET) ? 's' : 'd', row, col, end, value[col]);
-                    col = end + 1;
-                }
-            }
-        }
-    }
-    for (int i = 0; i < sEntityCount; ++i) {
-        const PortStereoEntityKey* k = &sEntities[i].key;
-        if (k->all) {
-            fprintf(file, "ent %02x %02x %02x all %d\n", k->kind, k->id, k->type, sEntities[i].delta);
-        } else {
-            fprintf(file, "ent %02x %02x %02x %02x %02x %u %u %d\n", k->kind, k->id, k->type, k->area, k->room,
-                    k->col, k->row, sEntities[i].delta);
-        }
-    }
-    if (fclose(file) != 0) {
+          out.file);
+    Write(&out, PORT_STEREO_EXPORT_ALL, -1);
+    if (fclose(out.file) != 0) {
         return FALSE;
     }
     remove(STEREO_EDITS_FILE);
@@ -216,13 +349,103 @@ bool32 PortStereoEdits_Save(void) {
     return TRUE;
 }
 
+char* PortStereoEdits_Export(int kinds, int area, int room, size_t* length) {
+    PortStereoEdits_Load();
+    Out out = { NULL, NULL, 0, 0, FALSE };
+    OutPrintf(&out, "# rev %lu\n", (unsigned long)sRevision);
+    Write(&out, kinds, (kinds & PORT_STEREO_EXPORT_CELLS) && area >= 0 ? (area << 8) | room : -1);
+    if (out.failed) {
+        free(out.text);
+        return NULL;
+    }
+    *length = out.length;
+    return out.text;
+}
+
+void PortStereoEdits_Import(int kinds, int area, int room, const char* text, size_t length) {
+    PortStereoEdits_Load();
+    if (kinds & PORT_STEREO_EXPORT_CELLS) {
+        RoomEdits* edits = FindRoom(area, room, FALSE);
+        if (edits != NULL) {
+            memset(edits->flags, 0, sizeof(edits->flags));
+            memset(edits->value, 0, sizeof(edits->value));
+        }
+    }
+    if (kinds & PORT_STEREO_EXPORT_TILES) {
+        sRuleCount = 0;
+        sRuleSlotsStale = TRUE;
+    }
+    if (kinds & PORT_STEREO_EXPORT_ENTITIES) {
+        sEntityCount = 0;
+    }
+    const char* end = text + length;
+    while (text < end) {
+        const char* newline = memchr(text, '\n', (size_t)(end - text));
+        const size_t n = (size_t)((newline != NULL ? newline : end) - text);
+        char line[160];
+        if (n < sizeof(line)) {
+            memcpy(line, text, n);
+            line[n] = '\0';
+            ParseLine(line, kinds, (kinds & PORT_STEREO_EXPORT_CELLS) ? (area << 8) | room : -1);
+        }
+        text += n + 1;
+    }
+    Changed();
+}
+
+u32 PortStereoEdits_TileHash(const u16* subTiles, const u8* charBlock) {
+    u32 hash = 2166136261u;
+    for (int q = 0; q < 4; ++q) {
+        const u16 entry = subTiles[q];
+        const u8* pixels = charBlock + (((u32)(entry & 0x3ff) * 32u) & 0xffffu);
+        hash = (hash ^ (entry & 0xff)) * 16777619u;
+        hash = (hash ^ (entry >> 8)) * 16777619u;
+        for (int i = 0; i < 32; ++i) {
+            hash = (hash ^ pixels[i]) * 16777619u;
+        }
+    }
+    return hash != 0 ? hash : 1;
+}
+
 u32 PortStereoEdits_Revision(void) {
     return sRevision;
 }
 
+/* One layer's edit of one cell: replace or add. */
+static void ApplyOne(u8 flags, s8 value, s8* height, s8* ground, s8 unknownGround) {
+    if (flags & CELL_SET) {
+        *height = value;
+        if (ground != NULL) {
+            *ground = value;
+        }
+    } else {
+        *height = (s8)Clamp(*height + value, -100, 100);
+        if (ground != NULL && *ground != unknownGround) {
+            *ground = (s8)Clamp(*ground + value, -100, 100);
+        }
+    }
+}
+
 void PortStereoEdits_ApplyRoom(int area, int room, int cols, int rows, s8* height, s8* heightTop, s8* ground,
-                               s8 unknownGround) {
+                               s8 unknownGround, const u32* tileHashBottom, const u32* tileHashTop) {
     PortStereoEdits_Load();
+    if (sRuleCount > 0) {
+        for (int row = 0; row < rows && row < SIDE; ++row) {
+            for (int col = 0; col < cols && col < SIDE; ++col) {
+                const int at = row * cols + col, tile = (col >> 1) | ((row >> 1) << 6);
+                const int quarter = (col & 1) | ((row & 1) << 1);
+                const TileRule* rule;
+                if (tileHashBottom != NULL && tileHashBottom[tile] != 0 &&
+                    (rule = FindRule(tileHashBottom[tile], 0, quarter)) != NULL) {
+                    ApplyOne(rule->flags, rule->value, &height[at], &ground[at], unknownGround);
+                }
+                if (tileHashTop != NULL && tileHashTop[tile] != 0 &&
+                    (rule = FindRule(tileHashTop[tile], 1, quarter)) != NULL) {
+                    ApplyOne(rule->flags, rule->value, &heightTop[at], NULL, unknownGround);
+                }
+            }
+        }
+    }
     const RoomEdits* edits = FindRoom(area, room, FALSE);
     if (edits == NULL) {
         return;

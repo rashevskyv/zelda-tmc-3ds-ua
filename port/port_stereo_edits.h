@@ -42,10 +42,30 @@ bool32 PortStereoEdits_Save(void);
 /* Changes with every edit, so a measured room knows it is stale. */
 u32 PortStereoEdits_Revision(void);
 
-/* Applies the room's cell edits to its measured grids (cols x rows,
- * row-major). A replaced bottom height is ground from then on. */
+/* Applies the tile rules and then the room's cell edits to its measured
+ * grids (cols x rows, row-major). The tile hashes are per 16x16 map tile,
+ * 64 a row, 0 where there is none; either array may be NULL. A replaced
+ * bottom height is ground from then on. */
 void PortStereoEdits_ApplyRoom(int area, int room, int cols, int rows, s8* height, s8* heightTop, s8* ground,
-                               s8 unknownGround);
+                               s8 unknownGround, const u32* tileHashBottom, const u32* tileHashTop);
+/* What a 16x16 map tile looks like, as the key of a tile rule: its four
+ * screen entries and their 4bpp pixels in the background's char block
+ * (64 KiB from its base, wrapping). Never 0. */
+u32 PortStereoEdits_TileHash(const u16* subTiles, const u8* charBlock);
+
+/* The edits as text, as the file holds them, for the PC editor: `kinds` a
+ * mask; cell lines of one room only when area >= 0. Returns a malloc'd
+ * buffer (first line "# rev N"), or NULL. */
+enum {
+    PORT_STEREO_EXPORT_CELLS = 1,
+    PORT_STEREO_EXPORT_TILES = 2,
+    PORT_STEREO_EXPORT_ENTITIES = 4,
+    PORT_STEREO_EXPORT_ALL = 7,
+};
+char* PortStereoEdits_Export(int kinds, int area, int room, size_t* length);
+/* Replaces those edits -- the room's cells, all tile rules, all entity
+ * edits -- by the lines of `text`. */
+void PortStereoEdits_Import(int kinds, int area, int room, const char* text, size_t length);
 /* Which of the asked layers of a cell carry an edit (PORT_STEREO_EDIT_*). */
 int PortStereoEdits_CellEdited(int area, int room, int col, int row, int layers);
 

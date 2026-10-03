@@ -165,6 +165,7 @@ enum {
     SS_ACT_UPDATE_PREV, SS_ACT_UPDATE_NEXT,
     SS_ACT_SCREEN_HELP, /* ua-release: "?" on the Screen page */
     SS_ACT_STEREO_EDITOR, /* developer tools: the 3D relief editor */
+    SS_ACT_STEREO_LINK,   /* developer tools: the PC editor's network link */
 #endif
 };
 
@@ -2202,6 +2203,7 @@ static int GetSettingState(int row, char* out, int outCap) {
 #ifdef TMC_3DS
 #include "../platform/3ds/source/update_ui_3ds.inc"
 #include "port_stereo_editor.h"
+#include "port_stereo_link.h"
 
 /* The 3D editor draws the picture over the top 200 rows itself; this is the
  * status line under it with the "?" button, or the help in the picture's
@@ -2279,7 +2281,7 @@ static void PaintSettingsPanel(const SSurf* s, const SecondScreenSnapshot* snap,
         float gap = 10 * u;
         int rowCount = 3;
 #ifdef TMC_3DS
-        rowCount = 5;
+        rowCount = 6;
 #endif
         float rowH = (iy1 - y0 - (rowCount - 1) * gap) / rowCount;
         if (rowH > 92 * u) rowH = 92 * u;
@@ -2300,6 +2302,10 @@ static void PaintSettingsPanel(const SSurf* s, const SecondScreenSnapshot* snap,
                            SS_SETTINGS_OVERLAY, u, ts);
         DrawDeveloperActionRow(s, tl, x0, y0 + 4 * (rowH + gap), x1, y0 + 5 * rowH + 4 * gap, "3D EDITOR",
                                "OPEN", SS_ACT_STEREO_EDITOR, u, ts);
+        char linkValue[24];
+        PortStereoLink_Label(linkValue, sizeof(linkValue));
+        DrawDeveloperActionRow(s, tl, x0, y0 + 5 * (rowH + gap), x1, y0 + 6 * rowH + 5 * gap, "PC EDITOR",
+                               linkValue, SS_ACT_STEREO_LINK, u, ts);
 #else
         (void)loadStateFlashUntil;
         (void)loadStateResult;
@@ -3246,6 +3252,9 @@ void Port_SecondScreen_OnTap(int x, int y, int longPress) {
 #ifdef TMC_3DS
         case SS_ACT_STEREO_EDITOR:
             PortStereoEditor_Open();
+            break;
+        case SS_ACT_STEREO_LINK:
+            PortStereoLink_SetEnabled(!PortStereoLink_Enabled());
             break;
 #endif
         case SS_ACT_LOAD_CANCEL:

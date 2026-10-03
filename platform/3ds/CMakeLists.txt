@@ -63,6 +63,7 @@ set(TMC_PORT_SOURCES
     port/port_stereo.c
     port/port_stereo_edits.c
     port/port_stereo_editor.c
+    port/port_stereo_link.c
     port/port_3ds_full_view_policy.c
     port/port_gba_mem.c port/port_hdma.c port/port_save.c port/port_softslots.c
     port/port_dump_state.c
@@ -114,6 +115,7 @@ add_executable(tmc-3ds
     source/port_config_3ds.c
     source/port_dump_state_3ds.c
     source/debug_warp_3ds.c
+    source/stereo_link_net_3ds.c
     source/port_rando_3ds.c
     source/port_asset_stubs_3ds.c
     source/port_optional_stubs_3ds.c

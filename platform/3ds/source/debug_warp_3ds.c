@@ -15,9 +15,11 @@
 #include "common.h"
 
 #include "port_stereo_editor.h"
+#include "port_stereo_link.h"
 
 extern bool Port_Config_3DSDebugWarp(unsigned out[5]);
 extern int Port_Config_3DSDebugStereoEditor(void);
+extern bool Port_Config_3DSStereoLink(void);
 
 static void DebugStereoEditorTick(void) {
     static bool done;
@@ -39,6 +41,14 @@ static void DebugStereoEditorTick(void) {
 }
 
 void Port_3DS_DebugWarpTick(void) {
+    static bool linkFromIni;
+    if (!linkFromIni) {
+        linkFromIni = true;
+        if (Port_Config_3DSStereoLink()) {
+            PortStereoLink_SetEnabled(true);
+        }
+    }
+    PortStereoLink_Tick();
     DebugStereoEditorTick();
     static bool done;
     static unsigned settled;
