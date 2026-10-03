@@ -39,6 +39,7 @@
 #include "room.h"
 #include "scroll.h"
 #include "transitions.h"
+#include "fade.h"
 #include "port_gba_mem.h"
 #include "port_rom.h"
 
@@ -299,14 +300,16 @@ static void AnswerStatus(Client* client) {
     PutF(&b,
          "{\"inGame\":%s,\"live\":%s,\"area\":%u,\"room\":%u,\"width\":%u,\"height\":%u,"
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
-         "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s}",
+         "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
+         "\"fade\":%s}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
          (int)gPlayerEntity.base.x.HALF.HI - (int)gRoomControls.origin_x,
          (int)gPlayerEntity.base.y.HALF.HI - (int)gRoomControls.origin_y, header ? header->tileSet_id : 0u,
          gRoomControls.scrollAction > 1 ? "true" : "false", (unsigned long)PortStereoEdits_Revision(), sFrame,
-         PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false");
+         PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false",
+         gFadeControl.active ? "true" : "false");
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -429,7 +432,8 @@ static void AnswerRoom(Client* client) {
     PutLayer(&b, &gMapBottom);
     PutLayer(&b, &gMapTop);
     Put(&b, gVram, 0x10000);
-    Put(&b, gBgPltt, 0x200);
+    /* The game's own palette, not the one in hardware, which a fade changes. */
+    Put(&b, gPaletteBuffer, 0x200);
     PutGrid(&b, view.autoGround, &view);
     PutGrid(&b, view.autoHeight, &view);
     PutGrid(&b, view.autoHeightTop, &view);
