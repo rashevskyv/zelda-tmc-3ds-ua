@@ -10,6 +10,7 @@
 #include "port_stereo_editor.h"
 #include "port_stereo.h"
 #include "port_stereo_edits.h"
+#include "port_stereo_link.h"
 
 #include "global.h"
 #include "entity.h"
@@ -52,9 +53,48 @@ static unsigned sFrame, sTapFrame;
 static const Entity* sTapEntity;
 static int sTapCol = -1, sTapRow = -1;
 static bool sSaveFailed;
+static unsigned sSelectionRevision;
+
+/* The room list: closed, the areas, or one area's rooms. */
+enum { LIST_CLOSED, LIST_AREAS, LIST_ROOMS };
+enum { MAX_LIST = 160 };
+static int sList;
+static int sListItems[MAX_LIST];
+static int sListCount, sListCursor, sListTop, sListArea;
+static char sListLines[2][PORT_STEREO_EDITOR_LIST_ROWS][48];
+static char sListTitle[2][48];
+static volatile int sListShown[2], sListCursorShown[2];
+static volatile int sListBuffer;
+
+/* Names as the decompilation calls the areas. */
+static const char* const kAreaNames[] = {
+    "Minish Woods", "Minish Village", "Hyrule Town", "Hyrule Field", "Castor Wilds", "Ruins", "Mt. Crenel",
+    "Castle Garden", "Cloud Tops", "Royal Valley", "Veil Falls", "Lake Hylia", "Lake Woods Cave", "Beanstalks",
+    "Empty", "Hyrule Dig Caves", "Melari's Mine", "Minish Paths", "Crenel Minish Paths", "Dig Caves",
+    "Crenel Dig Cave", "Festival Town", "Veil Falls Dig Cave", "Castor Wilds Dig Cave", "Outer Fortress of Winds",
+    "Hylia Dig Caves", "Veil Falls Top", NULL, NULL, NULL, NULL, NULL, "Minish House Interiors",
+    "House Interiors 1", "House Interiors 2", "House Interiors 3", "Tree Interiors", "Dojos", "Crenel Caves",
+    "Minish Cracks", "House Interiors 4", "Great Fairies", "Castor Caves", "Castor Darknut", "Armos Interiors",
+    "Town Minish Holes", "Minish Rafters", "Goron Cave", "Wind Tribe Tower", "Wind Tribe Tower Roof", "Caves",
+    "Veil Falls Caves", "Royal Valley Graves", "Minish Caves", "Castle Garden Minish Holes", NULL, "Ezlo Cutscene",
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "Hyrule Town Underground", "Garden Fountains",
+    "Hyrule Castle Cellar", "Simon's Simulation", NULL, NULL, NULL, "Deepwood Shrine", "Deepwood Shrine Boss",
+    "Deepwood Shrine Entry", NULL, NULL, NULL, NULL, NULL, "Cave of Flames", "Cave of Flames Boss", NULL, NULL,
+    NULL, NULL, NULL, NULL, "Fortress of Winds", "Fortress of Winds Top", "Inner Mazaal", NULL, NULL, NULL, NULL,
+    NULL, "Temple of Droplets", NULL, "Hyrule Town Minish Caves", NULL, NULL, NULL, NULL, NULL, "Royal Crypt",
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, "Palace of Winds", "Palace of Winds Boss", NULL, NULL, NULL, NULL,
+    NULL, NULL, "Sanctuary", NULL, NULL, NULL, NULL, NULL, NULL, NULL, "Hyrule Castle", "Sanctuary Entrance",
+    NULL, NULL, NULL, NULL, NULL, NULL, "Dark Hyrule Castle", "Dark Hyrule Castle Outside", "Vaati's Arms",
+    "Vaati 3", "Vaati 2", "Dark Hyrule Castle Bridge",
+};
+enum { AREA_NAME_COUNT = sizeof(kAreaNames) / sizeof(kAreaNames[0]) };
 
 static char sLines[2][LINE_SIZE];
 static volatile int sLineBuffer;
+
+static void OpenAreas(void);
+static void PublishList(void);
+static bool ListInput(uint32_t down, uint32_t held, bool touching, int touchX, int touchY);
 
 static float Scale(void) {
     return BASE_SCALE * (float)sZoom;
@@ -254,6 +294,8 @@ void PortStereoEditor_Open(void) {
     sSaveFailed = false;
     ClampPan();
     PublishStatus();
+    sList = LIST_CLOSED;
+    PublishList();
     sOpen = true;
 }
 
@@ -267,6 +309,10 @@ bool PortStereoEditor_HelpOpen(void) {
 
 void PortStereoEditor_ShowHelp(void) {
     sHelp = true;
+}
+
+void PortStereoEditor_ShowRooms(void) {
+    OpenAreas();
 }
 
 /* Zooms about the selection, or the middle of the view. */
@@ -284,7 +330,8 @@ static void ZoomTo(int zoom) {
     ClampPan();
 }
 
-static void ClearSelection(void) {
+static void ResetSelection(void) {
+    ++sSelectionRevision;
     memset(sSelection, 0, sizeof(sSelection));
     sSelected = 0;
     sCol0 = sRow0 = SIDE;
@@ -300,6 +347,7 @@ static void SelectCell(int col, int row) {
     }
     sSelection[row * SIDE + col] = 1;
     ++sSelected;
+    ++sSelectionRevision;
     sCol0 = Min(sCol0, col);
     sRow0 = Min(sRow0, row);
     sCol1 = Max(sCol1, col);
@@ -310,7 +358,7 @@ static void SelectCell(int col, int row) {
 static void SelectDrag(int touchX, int touchY) {
     const int c0 = CellCol(ToGbaX(sTouchX0)), r0 = CellRow(ToGbaY(sTouchY0));
     const int c1 = CellCol(ToGbaX(touchX)), r1 = CellRow(ToGbaY(touchY));
-    ClearSelection();
+    ResetSelection();
     for (int row = Max(0, Min(r0, r1)); row <= Min(RoomRows() - 1, Max(r0, r1)); ++row) {
         for (int col = Max(0, Min(c0, c1)); col <= Min(RoomCols() - 1, Max(c0, c1)); ++col) {
             SelectCell(col, row);
@@ -334,7 +382,7 @@ static u32 TileKey(int col, int row) {
 
 static void SelectSameTiles(int col, int row) {
     const u32 key = TileKey(col, row);
-    ClearSelection();
+    ResetSelection();
     for (int r = 0; r < RoomRows(); ++r) {
         for (int c = 0; c < RoomCols(); ++c) {
             if (TileKey(c, r) == key) {
@@ -363,13 +411,13 @@ static void SelectTap(void) {
     const int col = CellCol(pick.x), row = CellRow(pick.y);
     sTapEntity = NULL;
     if (!CellInRoom(col, row)) {
-        ClearSelection();
+        ResetSelection();
         return;
     }
     if (soon && col == sTapCol && row == sTapRow) {
         SelectSameTiles(col, row);
     } else {
-        ClearSelection();
+        ResetSelection();
         SelectCell(col, row);
     }
     sTapCol = col;
@@ -378,6 +426,10 @@ static void SelectTap(void) {
 
 static bool OnHelpButton(int x, int y) {
     return x >= PORT_STEREO_EDITOR_HELP_X0 && y >= PORT_STEREO_EDITOR_HELP_Y0;
+}
+
+static bool OnRoomsButton(int x, int y) {
+    return x >= PORT_STEREO_EDITOR_ROOMS_X0 && x < PORT_STEREO_EDITOR_HELP_X0 - 2 && y >= PORT_STEREO_EDITOR_HELP_Y0;
 }
 
 void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int touchX, int touchY, int padX,
@@ -400,6 +452,17 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
         PublishStatus();
         return;
     }
+    if (sWaitRelease) {
+        sWaitRelease = touching;
+        touching = false;
+    }
+    if (ListInput(down, held, touching, touchX, touchY)) {
+        if (touching) {
+            sWaitRelease = true;
+        }
+        PublishStatus();
+        return;
+    }
     if (down & (PORT_STEREO_EDITOR_B | PORT_STEREO_EDITOR_START)) {
         sSaveFailed = !PortStereoEdits_Save();
         if (!sSaveFailed) {
@@ -413,7 +476,7 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
         sHeatmap = !sHeatmap;
     }
     if (sSel == SEL_CELLS && (sArea != gRoomControls.area || sRoom != gRoomControls.room)) {
-        ClearSelection();
+        ResetSelection();
     }
 
     if (down & PORT_STEREO_EDITOR_L) {
@@ -428,8 +491,11 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
         ClampPan();
     }
 
-    if (sWaitRelease) {
-        sWaitRelease = touching;
+    if (touching && !sTouching && OnRoomsButton(touchX, touchY)) {
+        OpenAreas();
+        sWaitRelease = true;
+        PublishStatus();
+        return;
     } else if (touching && !sTouching && OnHelpButton(touchX, touchY)) {
         sHelp = true;
         sWaitRelease = true;
@@ -570,7 +636,7 @@ static bool HighlightVisit(Entity* e, void* context) {
 void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->rectCount = 0;
     view->cells = false;
-    view->hidden = sHelp;
+    view->hidden = sHelp || sList != LIST_CLOSED;
     const float s = Scale();
     const float x0 = sPanX > 0.0f ? sPanX : 0.0f, y0 = sPanY > 0.0f ? sPanY : 0.0f;
     const float x1 = sPanX + PORT_STEREO_EDITOR_VIEW_W / s < 240.0f ? sPanX + PORT_STEREO_EDITOR_VIEW_W / s : 240.0f;
@@ -584,7 +650,7 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->dstY = ViewY(y0);
     view->dstW = view->srcW * s;
     view->dstH = view->srcH * s;
-    if (sHelp || !InGame()) {
+    if (view->hidden || !InGame()) {
         return;
     }
 
@@ -657,9 +723,219 @@ const char* const* PortStereoEditor_HelpLines(int* count) {
         "X-кнопка - скинути правки виділеного",
         "L/R - масштаб, C-стік - прокрутка",
         "Select - кольори висот чи лише правки",
-        "B-кнопка - зберегти й вийти",
+        "B-кнопка - зберегти й вийти; кнопка К - кімнати",
         "Колір: синій нижче, зелений-червоний вище",
     };
     *count = (int)(sizeof(kLines) / sizeof(kLines[0]));
     return kLines;
+}
+
+void PortStereoEditor_ClearSelection(int area, int room) {
+    ResetSelection();
+    sArea = area;
+    sRoom = room;
+}
+
+void PortStereoEditor_SelectRun(int area, int room, int row, int col0, int col1) {
+    if (sSel != SEL_CELLS || sArea != area || sRoom != room) {
+        PortStereoEditor_ClearSelection(area, room);
+    }
+    for (int col = col0; col <= col1; ++col) {
+        if (col >= 0 && row >= 0 && col < SIDE && row < SIDE && !sSelection[row * SIDE + col]) {
+            sSelection[row * SIDE + col] = 1;
+            ++sSelected;
+            sCol0 = Min(sCol0, col);
+            sRow0 = Min(sRow0, row);
+            sCol1 = Max(sCol1, col);
+            sRow1 = Max(sRow1, row);
+            sSel = SEL_CELLS;
+        }
+    }
+    /* Not a change of ours: the PC editor already knows it. */
+    if (sOpen) {
+        PublishStatus();
+    }
+}
+
+unsigned PortStereoEditor_SelectionRevision(void) {
+    return sSelectionRevision;
+}
+
+char* PortStereoEditor_SelectionText(size_t* length) {
+    const size_t capacity = 32 + (size_t)SIDE * 64 * 14;
+    char* text = malloc(capacity);
+    if (text == NULL) {
+        return NULL;
+    }
+    size_t n = (size_t)snprintf(text, capacity, "%d %d\n", sArea, sRoom);
+    if (sSel == SEL_CELLS) {
+        for (int row = sRow0; row <= sRow1 && row < SIDE; ++row) {
+            for (int col = sCol0; col <= sCol1 && col < SIDE;) {
+                if (!sSelection[row * SIDE + col]) {
+                    ++col;
+                    continue;
+                }
+                int end = col;
+                while (end + 1 <= sCol1 && sSelection[row * SIDE + end + 1]) {
+                    ++end;
+                }
+                if (n + 16 < capacity) {
+                    n += (size_t)snprintf(text + n, capacity - n, "%d %d %d\n", row, col, end);
+                }
+                col = end + 1;
+            }
+        }
+    }
+    *length = n;
+    return text;
+}
+
+/* ---- The room list ---- */
+
+static void PublishList(void) {
+    const int next = !sListBuffer;
+    int shown = 0;
+    if (sList == LIST_AREAS) {
+        snprintf(sListTitle[next], sizeof(sListTitle[next]), "Області (B - назад)");
+    } else if (sList == LIST_ROOMS) {
+        snprintf(sListTitle[next], sizeof(sListTitle[next]), "%02X %s", sListArea,
+                 sListArea < AREA_NAME_COUNT && kAreaNames[sListArea] ? kAreaNames[sListArea] : "");
+    }
+    for (int i = 0; i < PORT_STEREO_EDITOR_LIST_ROWS && sListTop + i < sListCount; ++i) {
+        const int item = sListItems[sListTop + i];
+        char* line = sListLines[next][i];
+        if (sList == LIST_AREAS) {
+            snprintf(line, 48, "%02X  %s", item,
+                     item < AREA_NAME_COUNT && kAreaNames[item] ? kAreaNames[item] : "");
+        } else {
+            int w = 0, h = 0;
+            PortStereoLink_RoomSize(sListArea, item, &w, &h);
+            const bool here = sListArea == gRoomControls.area && item == gRoomControls.room;
+            snprintf(line, 48, "%02X:%02X  %dx%d%s", sListArea, item, w, h, here ? "  тут" : "");
+        }
+        ++shown;
+    }
+    sListShown[next] = sList == LIST_CLOSED ? 0 : shown;
+    sListCursorShown[next] = sListCursor - sListTop;
+    sListBuffer = next;
+}
+
+static void OpenAreas(void) {
+    sList = LIST_AREAS;
+    sListCount = 0;
+    sListCursor = 0;
+    for (int area = 0; area < 0x90 && sListCount < MAX_LIST; ++area) {
+        int w, h;
+        if (PortStereoLink_RoomSize(area, 0, &w, &h) || PortStereoLink_RoomSize(area, 1, &w, &h)) {
+            if (area == gRoomControls.area) {
+                sListCursor = sListCount;
+            }
+            sListItems[sListCount++] = area;
+        }
+    }
+    sListTop = Max(0, sListCursor - PORT_STEREO_EDITOR_LIST_ROWS / 2);
+    PublishList();
+}
+
+static void OpenRooms(int area) {
+    sList = LIST_ROOMS;
+    sListArea = area;
+    sListCount = 0;
+    sListCursor = 0;
+    for (int room = 0; room < 64 && sListCount < MAX_LIST; ++room) {
+        int w, h;
+        if (PortStereoLink_RoomSize(area, room, &w, &h)) {
+            if (area == gRoomControls.area && room == gRoomControls.room) {
+                sListCursor = sListCount;
+            }
+            sListItems[sListCount++] = room;
+        }
+    }
+    sListTop = Max(0, sListCursor - PORT_STEREO_EDITOR_LIST_ROWS / 2);
+    PublishList();
+}
+
+static void ListChoose(int index) {
+    if (index < 0 || index >= sListCount) {
+        return;
+    }
+    sListCursor = index;
+    if (sList == LIST_AREAS) {
+        OpenRooms(sListItems[index]);
+    } else if (PortStereoLink_Goto(sListArea, sListItems[index], -1, -1, 1) == 200) {
+        sList = LIST_CLOSED;
+        ResetSelection();
+        PublishList();
+    }
+}
+
+static void ListMove(int delta) {
+    sListCursor = Max(0, Min(sListCount - 1, sListCursor + delta));
+    if (sListCursor < sListTop) {
+        sListTop = sListCursor;
+    } else if (sListCursor >= sListTop + PORT_STEREO_EDITOR_LIST_ROWS) {
+        sListTop = sListCursor - PORT_STEREO_EDITOR_LIST_ROWS + 1;
+    }
+    PublishList();
+}
+
+/* Input while the list is up; true when it took the frame. */
+static bool ListInput(uint32_t down, uint32_t held, bool touching, int touchX, int touchY) {
+    static unsigned repeat;
+    if (sList == LIST_CLOSED) {
+        return false;
+    }
+    if (down & PORT_STEREO_EDITOR_B) {
+        if (sList == LIST_ROOMS) {
+            OpenAreas();
+        } else {
+            sList = LIST_CLOSED;
+            PublishList();
+        }
+        return true;
+    }
+    const uint32_t vertical = held & (PORT_STEREO_EDITOR_UP | PORT_STEREO_EDITOR_DOWN);
+    if (!vertical) {
+        repeat = 0;
+    }
+    if ((down & vertical) || (vertical && ++repeat > 18 && repeat % 4 == 0)) {
+        ListMove((vertical & PORT_STEREO_EDITOR_UP) ? -1 : 1);
+    }
+    if (down & PORT_STEREO_EDITOR_LEFT) {
+        ListMove(-PORT_STEREO_EDITOR_LIST_ROWS);
+    }
+    if (down & PORT_STEREO_EDITOR_RIGHT) {
+        ListMove(PORT_STEREO_EDITOR_LIST_ROWS);
+    }
+    if (down & PORT_STEREO_EDITOR_A) {
+        ListChoose(sListCursor);
+    }
+    static bool wasTouching;
+    if (touching && !wasTouching && touchY < PORT_STEREO_EDITOR_VIEW_H) {
+        const int row = (touchY - PORT_STEREO_EDITOR_LIST_Y0) / PORT_STEREO_EDITOR_LIST_ROW_H;
+        if (touchY < PORT_STEREO_EDITOR_LIST_Y0) {
+            /* The title: back. */
+            if (sList == LIST_ROOMS) {
+                OpenAreas();
+            } else {
+                sList = LIST_CLOSED;
+                PublishList();
+            }
+        } else if (row >= 0 && row < PORT_STEREO_EDITOR_LIST_ROWS) {
+            ListChoose(sListTop + row);
+        }
+    }
+    wasTouching = touching;
+    return true;
+}
+
+int PortStereoEditor_ListLines(char (*lines)[48], int* cursor, char* title, size_t titleSize) {
+    const int current = sListBuffer;
+    const int shown = sOpen ? sListShown[current] : 0;
+    for (int i = 0; i < shown; ++i) {
+        memcpy(lines[i], sListLines[current][i], 48);
+    }
+    *cursor = sListCursorShown[current];
+    snprintf(title, titleSize, "%s", sListTitle[current]);
+    return shown;
 }

@@ -1,0 +1,1262 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Редактор рельєфу 3D</title>
+<style>
+:root {
+  --bg: #16181d; --panel: #1e2128; --panel2: #262a33; --line: #343945; --text: #e6e8ee; --dim: #9aa1b1;
+  --accent: #4fc3f7; --accent2: #ffd54f; --ok: #66bb6a; --bad: #ef5350; --warn: #ffa726;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.on { background: #1b3a4b; border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+input[type=text], input[type=number], select { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; }
+input[type=number] { width: 64px; }
+kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; }
+#app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
+header { display: flex; gap: 8px; align-items: center; padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header .title { font-weight: 600; margin-right: 6px; }
+header .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.chip { padding: 3px 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+.chip.ok { color: var(--ok); border-color: #2e5a32; }
+.chip.bad { color: var(--bad); border-color: #5a2e2e; }
+.chip.warn { color: var(--warn); border-color: #5a4a2e; }
+main { display: grid; grid-template-columns: 250px 1fr 300px; min-height: 0; }
+aside { background: var(--panel); min-height: 0; overflow: auto; }
+aside.left { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+aside.right { border-left: 1px solid var(--line); }
+.section { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.section h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); font-weight: 600; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tools button { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 4px; font-size: 18px; }
+.tools button small { color: var(--dim); font-size: 10px; }
+#roomSearch { margin: 8px; }
+#roomTree { overflow: auto; flex: 1; padding: 0 4px 10px; }
+.area { margin: 2px 0; }
+.area > .head { padding: 4px 6px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; color: var(--dim); }
+.area > .head:hover { background: var(--panel2); color: var(--text); }
+.area.open > .head { color: var(--text); }
+.area .rooms { display: none; padding-left: 10px; }
+.area.open .rooms { display: block; }
+.roomItem { padding: 3px 6px; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
+.roomItem:hover { background: var(--panel2); }
+.roomItem.current { background: #1b3a4b; color: #fff; }
+.roomItem .badge { font-size: 10px; color: var(--accent2); }
+.roomItem .cached { font-size: 10px; color: var(--dim); }
+#viewWrap { position: relative; min-width: 0; min-height: 0; background: #0d0e11; overflow: hidden; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; image-rendering: pixelated; }
+#empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--dim); padding: 40px; pointer-events: none; }
+#empty b { color: var(--text); }
+#hud { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+#hud .chip { background: rgba(22,24,29,.85); }
+footer { display: flex; gap: 14px; padding: 5px 10px; background: var(--panel); border-top: 1px solid var(--line); color: var(--dim); white-space: nowrap; overflow: hidden; }
+footer b { color: var(--text); font-weight: 500; }
+.legend { display: flex; gap: 2px; align-items: center; }
+.legend span { width: 18px; height: 12px; border-radius: 2px; display: inline-block; font-size: 9px; text-align: center; color: #000; line-height: 12px; }
+#entityList, #ruleList { max-height: 220px; overflow: auto; margin-top: 6px; }
+.listItem { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 5px; cursor: pointer; }
+.listItem:hover { background: var(--panel2); }
+.listItem.sel { background: #1b3a4b; }
+.listItem .v { color: var(--accent2); min-width: 26px; text-align: right; }
+.muted { color: var(--dim); }
+.small { font-size: 11px; }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; max-width: 720px; }
+dialog::backdrop { background: rgba(0,0,0,.55); }
+dialog h2 { margin-top: 0; }
+dialog table { border-collapse: collapse; width: 100%; }
+dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+#live { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow: auto; background: rgba(22,24,29,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: none; }
+#live.open { display: block; }
+#live canvas { display: block; image-rendering: pixelated; }
+#live .row { margin: 0 0 4px; }
+#toast { position: fixed; right: 16px; bottom: 40px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+#toast div { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <span class="title">Рельєф 3D · The Minish Cap 3DS</span>
+  <input id="addr" type="text" size="18" placeholder="IP консолі" title="Адреса з Налаштування → Інструменти → Редактор ПК. Для Azahar: localhost">
+  <button id="connectBtn">Підключитися</button>
+  <span id="connChip" class="chip">не підключено</span>
+  <label class="row" title="Коли гра переходить у іншу кімнату, редактор відкриває її сам"><input type="checkbox" id="follow" checked> за грою</label>
+  <span class="sep"></span>
+  <button id="undoBtn" title="Скасувати (Ctrl+Z)">↶</button>
+  <button id="redoBtn" title="Повторити (Ctrl+Y)">↷</button>
+  <span class="sep"></span>
+  <button id="saveBtn" title="Записати stereo_edits.txt на картку консолі">Зберегти на консолі</button>
+  <button id="downloadBtn" title="Завантажити stereo_edits.txt на комп'ютер">Завантажити файл</button>
+  <button id="openBtn" title="Відкрити stereo_edits.txt (замінює поточні правки)">Відкрити…</button>
+  <button id="mergeBtn" title="Об'єднати з файлом іншої людини">Об'єднати…</button>
+  <span class="sep"></span>
+  <button id="helpBtn" title="Довідка (F1)">?</button>
+  <input id="fileInput" type="file" accept=".txt" hidden>
+</header>
+<main>
+  <aside class="left">
+    <input id="roomSearch" type="text" placeholder="Пошук кімнати: назва, 03:01…">
+    <div id="roomTree"><div class="muted small" style="padding:8px">Підключіться до консолі, щоб побачити кімнати.</div></div>
+  </aside>
+  <section id="viewWrap">
+    <canvas id="view"></canvas>
+    <div id="empty"><div><b>Кімнату ще не завантажено.</b><br><br>Увімкніть на консолі <i>Налаштування → Інструменти → Редактор ПК</i>,<br>впишіть адресу, яку вона покаже, і натисніть «Підключитися».<br>Для Azahar адреса — <b>localhost</b>.</div></div>
+    <div id="hud"></div>
+    <div id="live"><div class="row small"><b>Кадр консолі</b>
+      <select id="liveMode"><option value="side">поруч (ліве | праве)</option><option value="cross">перехресно (праве | ліве)</option><option value="ana">анагліф</option><option value="left">лише ліве</option></select>
+      <select id="liveScale"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select>
+      <span id="liveInfo" class="muted"></span></div><canvas id="liveCanvas" width="484" height="160"></canvas></div>
+  </section>
+  <aside class="right">
+    <div class="section">
+      <h3>Інструмент</h3>
+      <div class="grid3 tools">
+        <button data-tool="rect" title="Прямокутник (R)">▭<small>R</small></button>
+        <button data-tool="brush" title="Пензель (B)">✎<small>B</small></button>
+        <button data-tool="lasso" title="Ласо (L)">◌<small>L</small></button>
+        <button data-tool="wand" title="Чарівна паличка: сусідні клітинки тієї ж висоти (W)">✦<small>W</small></button>
+        <button data-tool="tile" title="Усі клітинки цієї плитки в кімнаті (T)">▦<small>T</small></button>
+        <button data-tool="pick" title="Піпетка: взяти висоту клітинки (I)">⊙<small>I</small></button>
+        <button data-tool="entity" title="Спрайти: клік — вибрати об'єкт (E)">☺<small>E</small></button>
+        <button data-tool="pan" title="Рука: рухати вигляд (H, або права кнопка миші)">✋<small>H</small></button>
+      </div>
+      <div class="row small muted" style="margin-top:6px">Shift — додати до виділення, Alt — відняти.</div>
+      <div class="row" id="brushRow">Пензель <select id="brushSize"><option value="1">1×1</option><option value="2">2×2</option><option value="3">3×3</option><option value="4">4×4</option></select>
+        <label title="Паличка порівнює плитки, а не висоти"><input type="checkbox" id="wandTile"> паличка за плиткою</label></div>
+    </div>
+    <div class="section">
+      <h3>Шар</h3>
+      <div class="grid3">
+        <button data-layer="3" title="Обидва шари мапи (1)">обидва</button>
+        <button data-layer="1" title="Нижній шар: земля, підлога (2)">нижній</button>
+        <button data-layer="2" title="Верхній шар: крони, дахи, верх стін (3)">верхній</button>
+      </div>
+    </div>
+    <div class="section">
+      <h3>Висота виділеного</h3>
+      <div id="selInfo" class="small muted">нічого не виділено</div>
+      <div class="row">
+        <button id="downBtn" title="Нижче на 1 (↓ або −)">− 1</button>
+        <button id="upBtn" title="Вище на 1 (↑ або +)">+ 1</button>
+        <input id="setValue" type="number" value="0" min="-24" max="24" title="Висота в одиницях (1 = 1 піксель стерео на середній силі)">
+        <button id="setBtn" title="Поставити висоту (Enter)">Поставити</button>
+      </div>
+      <div class="row">
+        <button id="levelBtn" title="Вирівняти до найнижчої клітинки виділення (A)">Вирівняти</button>
+        <button id="resetBtn" title="Скинути правки виділеного — повернути автоматику (X / Delete)">Скинути</button>
+        <button id="clearSelBtn" title="Зняти виділення (Esc)">Зняти</button>
+      </div>
+    </div>
+    <div class="section">
+      <h3>Правила плиток</h3>
+      <div class="small muted">Правило діє на кожну таку саму плитку в усіх кімнатах гри (за її графікою). Кімнатні правки накладаються поверх.</div>
+      <div class="row">
+        <button id="ruleSetBtn" title="Для всіх плиток виділення: висота = значення в полі вище">Правило: = значення</button>
+        <button id="ruleAddBtn" title="Для всіх плиток виділення: додати значення з поля">Правило: + значення</button>
+        <button id="ruleDelBtn" title="Прибрати правила плиток виділення">Прибрати</button>
+      </div>
+      <div id="ruleList"></div>
+    </div>
+    <div class="section">
+      <h3>Спрайти кімнати</h3>
+      <div class="row small"><label><input type="checkbox" id="entAll"> зміни для всіх таких</label></div>
+      <div class="row"><button id="entDown" title="Далі від глядача">далі</button><button id="entUp" title="Ближче до глядача">ближче</button><button id="entReset">скинути</button></div>
+      <div id="entityList"></div>
+    </div>
+    <div class="section">
+      <h3>Вигляд</h3>
+      <div class="row">
+        <label><input type="checkbox" id="showBottom" checked> нижній</label>
+        <label><input type="checkbox" id="showTop" checked> верхній</label>
+        <label><input type="checkbox" id="showHeat" checked> кольори висот</label>
+        <label><input type="checkbox" id="showGrid" checked> сітка</label>
+        <label><input type="checkbox" id="showEntities" checked> спрайти</label>
+        <label><input type="checkbox" id="showAuto"> лише автоматика</label>
+      </div>
+      <div class="row">
+        <label title="Червоно-блакитний анагліф з висот редактора"><input type="checkbox" id="preview3d"> 3D-перегляд (анагліф)</label>
+        <label title="Справжній кадр обох очей прямо з консолі, оновлюється кілька разів на секунду (V)"><input type="checkbox" id="liveOn"> кадр консолі</label>
+      </div>
+      <div class="row legend" id="legend"></div>
+    </div>
+  </aside>
+</main>
+<footer>
+  <span id="hover">—</span>
+  <span style="flex:1"></span>
+  <span id="pending" class="muted"></span>
+</footer>
+</div>
+<div id="toast"></div>
+<dialog id="helpDlg">
+  <h2>Як користуватися</h2>
+  <p>Кожна кімната складається з клітинок 8×8 у двох шарах мапи. Висота клітинки — у одиницях стерео (1 = 1 піксель різниці між очима на середній силі). Гра рахує висоти сама; тут ви їх виправляєте. Зміни одразу йдуть на консоль і видно в 3D.</p>
+  <table>
+    <tr><td><kbd>R</kbd> <kbd>B</kbd> <kbd>L</kbd> <kbd>W</kbd> <kbd>T</kbd></td><td>прямокутник, пензель, ласо, паличка (та сама висота поруч), усі такі плитки кімнати</td></tr>
+    <tr><td><kbd>I</kbd> <kbd>E</kbd> <kbd>H</kbd></td><td>піпетка висоти, вибір спрайтів, рука</td></tr>
+    <tr><td>Shift / Alt</td><td>додати до виділення / відняти</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd> або <kbd>+</kbd> <kbd>−</kbd></td><td>вище / нижче на 1</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>поставити висоту з поля</td></tr>
+    <tr><td><kbd>A</kbd></td><td>вирівняти до найнижчої</td></tr>
+    <tr><td><kbd>X</kbd> / <kbd>Delete</kbd></td><td>скинути правки виділеного</td></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>шар: обидва / нижній / верхній</td></tr>
+    <tr><td><kbd>G</kbd> <kbd>C</kbd> <kbd>P</kbd> <kbd>V</kbd></td><td>сітка, кольори, 3D-перегляд, живий кадр консолі</td></tr>
+    <tr><td>Колесо / права кнопка</td><td>масштаб / рухати вигляд</td></tr>
+    <tr><td><kbd>Ctrl+Z</kbd> <kbd>Ctrl+Y</kbd> <kbd>Ctrl+A</kbd> <kbd>Esc</kbd></td><td>скасувати, повторити, виділити все, зняти виділення</td></tr>
+  </table>
+  <p><b>Правила плиток</b> — найшвидший шлях: виділіть, наприклад, дерево, і «Правило: = 2» підніме всі такі дерева в грі. Для винятків правте клітинки кімнати.</p>
+  <p><b>Кольори:</b> рівень землі прозорий, нижче — синій, вище — зелений → жовтий → помаранчевий → червоний → фіолетовий. Біла смужка — клітинка з правкою, блакитна рамка — правило плитки.</p>
+  <p><b>Кілька людей:</b> кожен зберігає свій файл; «Об'єднати…» зливає чужий файл з вашим і показує спірні клітинки.</p>
+  <p class="muted small">Кімнати, які ви вже відкривали, зберігаються в браузері — з ними можна працювати й без консолі, а потім надіслати правки.</p>
+  <form method="dialog"><button>Зрозуміло</button></form>
+</dialog>
+<dialog id="mergeDlg">
+  <h2>Об'єднати файли</h2>
+  <div id="mergeBody"></div>
+  <div class="row" style="margin-top:12px">
+    <button id="mergeMine">Спірне — моє</button>
+    <button id="mergeTheirs">Спірне — їхнє</button>
+    <form method="dialog" style="display:inline"><button>Скасувати</button></form>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+/* ===== Constants mirrored from the game (port/port_stereo_edits.c, port_stereo_link.c) ===== */
+const PORT = 8333, SIDE = 128, HEIGHT_LIMIT = 24, DELTA_LIMIT = 12;
+const CELL_HAS = 1, CELL_SET = 2;
+const LAYER_BOTTOM = 1, LAYER_TOP = 2, LAYER_BOTH = 3;
+const KIND_NAMES = ["земля", "тверде", "поза кімнатою", "вода/яма", "сходи/схил", "уступ↑", "уступ→", "уступ↓", "уступ←"];
+const ENTITY_KINDS = { 1: "Лінк", 3: "ворог", 4: "?", 6: "об'єкт", 7: "NPC", 8: "предмет Лінка" };
+const AREA_NAMES = ["Minish Woods","Minish Village","Hyrule Town","Hyrule Field","Castor Wilds","Ruins","Mt. Crenel","Castle Garden","Cloud Tops","Royal Valley","Veil Falls","Lake Hylia","Lake Woods Cave","Beanstalks","Empty","Hyrule Dig Caves","Melari's Mine","Minish Paths","Crenel Minish Paths","Dig Caves","Crenel Dig Cave","Festival Town","Veil Falls Dig Cave","Castor Wilds Dig Cave","Outer Fortress of Winds","Hylia Dig Caves","Veil Falls Top","","","","","","Minish House Interiors","House Interiors 1","House Interiors 2","House Interiors 3","Tree Interiors","Dojos","Crenel Caves","Minish Cracks","House Interiors 4","Great Fairies","Castor Caves","Castor Darknut","Armos Interiors","Town Minish Holes","Minish Rafters","Goron Cave","Wind Tribe Tower","Wind Tribe Tower Roof","Caves","Veil Falls Caves","Royal Valley Graves","Minish Caves","Castle Garden Minish Holes","Area 37","Ezlo Cutscene","","","","","","","","Area 40","Hyrule Town Underground","Garden Fountains","Hyrule Castle Cellar","Simon's Simulation","Area 45","","Area 47","Deepwood Shrine","Deepwood Shrine Boss","Deepwood Shrine Entry","","","Area 4D","","","Cave of Flames","Cave of Flames Boss","","","","","","Area 57","Fortress of Winds","Fortress of Winds Top","Inner Mazaal","","","","","Area 5F","Temple of Droplets","","Hyrule Town Minish Caves","","","","","Area 67","Royal Crypt","","","","","","","Area 6F","Palace of Winds","Palace of Winds Boss","","","","","","Area 77","Sanctuary","","","","","","","Area 7F","Hyrule Castle","Sanctuary Entrance","","","","","","Area 87","Dark Hyrule Castle","Dark Hyrule Castle Outside","Vaati's Arms","Vaati 3","Vaati 2","Dark Hyrule Castle Bridge","","Area 8F"];
+const hex2 = n => n.toString(16).toUpperCase().padStart(2, "0");
+const roomKey = (a, r) => `${a}:${r}`;
+const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+
+/* ===== Edits model: the same three kinds as stereo_edits.txt ===== */
+class Edits {
+  constructor() { this.rooms = new Map(); this.rules = new Map(); this.entities = []; }
+  room(a, r, create) {
+    const k = roomKey(a, r);
+    let e = this.rooms.get(k);
+    if (!e && create) { e = { area: a, room: r, flags: [new Uint8Array(SIDE * SIDE), new Uint8Array(SIDE * SIDE)], value: [new Int8Array(SIDE * SIDE), new Int8Array(SIDE * SIDE)] }; this.rooms.set(k, e); }
+    return e;
+  }
+  static ruleKey(layer, hash, q) { return `${layer}:${hash >>> 0}:${q}`; }
+  parseLine(line, kinds, onlyRoom) {
+    let m;
+    if ((kinds & 1) && (m = line.match(/^cell\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([bt])\s+([ds])\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)/i))) {
+      const a = parseInt(m[1], 16), r = parseInt(m[2], 16);
+      if (onlyRoom && (a !== onlyRoom[0] || r !== onlyRoom[1])) return;
+      const e = this.room(a, r, true), L = m[3] === "t" ? 1 : 0, set = m[4] === "s";
+      const row = +m[5], c0 = +m[6], c1 = +m[7], v = clamp(+m[8], -HEIGHT_LIMIT, HEIGHT_LIMIT);
+      if (row >= SIDE) return;
+      for (let c = c0; c <= c1 && c < SIDE; ++c) { e.flags[L][row * SIDE + c] = CELL_HAS | (set ? CELL_SET : 0); e.value[L][row * SIDE + c] = v; }
+    } else if ((kinds & 2) && (m = line.match(/^tile\s+([bt])\s+([0-9a-f]+)\s+(\d)\s+([ds])\s+(-?\d+)/i))) {
+      const layer = m[1] === "t" ? 1 : 0, hash = parseInt(m[2], 16) >>> 0, q = +m[3];
+      if (q < 4) this.rules.set(Edits.ruleKey(layer, hash, q), { layer, hash, q, set: m[4] === "s", value: clamp(+m[5], -HEIGHT_LIMIT, HEIGHT_LIMIT) });
+    } else if ((kinds & 1) && !onlyRoom && (m = line.match(/^rect\s+([0-9a-f]+)\s+([0-9a-f]+)\s+(\d)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(-?\d+)/i))) {
+      const e = this.room(parseInt(m[1], 16), parseInt(m[2], 16), true);
+      const cells = []; for (let y = +m[5]; y <= +m[7] && y < SIDE; ++y) for (let x = +m[4]; x <= +m[6] && x < SIDE; ++x) cells.push(y * SIDE + x);
+      stepCells(e, +m[3] & 3, cells, +m[8]);
+    } else if ((kinds & 4) && (m = line.match(/^ent\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+all\s+(-?\d+)/i))) {
+      this.entities.push({ kind: parseInt(m[1], 16), id: parseInt(m[2], 16), type: parseInt(m[3], 16), all: true, area: 0, room: 0, col: 0, row: 0, delta: clamp(+m[4], -DELTA_LIMIT, DELTA_LIMIT) });
+    } else if ((kinds & 4) && (m = line.match(/^ent\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+(\d+)\s+(\d+)\s+(-?\d+)/i))) {
+      this.entities.push({ kind: parseInt(m[1], 16), id: parseInt(m[2], 16), type: parseInt(m[3], 16), all: false, area: parseInt(m[4], 16), room: parseInt(m[5], 16), col: +m[6], row: +m[7], delta: clamp(+m[8], -DELTA_LIMIT, DELTA_LIMIT) });
+    }
+  }
+  importText(text, kinds, onlyRoom) {
+    if (kinds & 1) { if (onlyRoom) this.rooms.delete(roomKey(onlyRoom[0], onlyRoom[1])); else this.rooms.clear(); }
+    if (kinds & 2) this.rules.clear();
+    if (kinds & 4) this.entities = [];
+    for (const line of text.split(/\r?\n/)) this.parseLine(line.trim(), kinds, onlyRoom);
+  }
+  roomCellsText(e) {
+    const out = [];
+    for (let L = 0; L < 2; ++L) for (let row = 0; row < SIDE; ++row) {
+      for (let col = 0; col < SIDE;) {
+        const i = row * SIDE + col, f = e.flags[L][i];
+        if (!(f & CELL_HAS)) { ++col; continue; }
+        let end = col; while (end + 1 < SIDE && e.flags[L][row * SIDE + end + 1] === f && e.value[L][row * SIDE + end + 1] === e.value[L][i]) ++end;
+        out.push(`cell ${hex2(e.area).toLowerCase()} ${hex2(e.room).toLowerCase()} ${L ? "t" : "b"} ${f & CELL_SET ? "s" : "d"} ${row} ${col} ${end} ${e.value[L][i]}`);
+        col = end + 1;
+      }
+    }
+    return out;
+  }
+  rulesText() { return [...this.rules.values()].map(r => `tile ${r.layer ? "t" : "b"} ${(r.hash >>> 0).toString(16).padStart(8, "0")} ${r.q} ${r.set ? "s" : "d"} ${r.value}`); }
+  entitiesText() { return this.entities.map(e => e.all ? `ent ${hex2(e.kind)} ${hex2(e.id)} ${hex2(e.type)} all ${e.delta}`.toLowerCase() : `ent ${hex2(e.kind)} ${hex2(e.id)} ${hex2(e.type)} ${hex2(e.area)} ${hex2(e.room)} ${e.col} ${e.row} ${e.delta}`.toLowerCase()); }
+  fileText() {
+    const lines = ["# The Minish Cap 3DS: stereo 3D relief corrections (3D editor, PC editor)",
+      "# cell <area> <room> <b|t layer> <d add|s set> <row> <col0> <col1> <value>",
+      "# tile <b|t> <graphics hash> <quarter> <d|s> <value>",
+      "# ent <kind> <id> <type> all <delta> | ent <kind> <id> <type> <area> <room> <col> <row> <delta>"];
+    for (const e of this.rooms.values()) lines.push(...this.roomCellsText(e));
+    lines.push(...this.rulesText(), ...this.entitiesText());
+    return lines.join("\n") + "\n";
+  }
+  snapshot(a, r) {
+    const e = this.room(a, r, false);
+    return { a, r, cells: e ? { flags: e.flags.map(x => x.slice()), value: e.value.map(x => x.slice()) } : null,
+      rules: new Map([...this.rules].map(([k, v]) => [k, { ...v }])), entities: this.entities.map(x => ({ ...x })) };
+  }
+  restore(s) {
+    if (s.cells) { const e = this.room(s.a, s.r, true); e.flags = s.cells.flags.map(x => x.slice()); e.value = s.cells.value.map(x => x.slice()); }
+    else this.rooms.delete(roomKey(s.a, s.r));
+    this.rules = new Map([...s.rules].map(([k, v]) => [k, { ...v }]));
+    this.entities = s.entities.map(x => ({ ...x }));
+  }
+  entityDelta(a, r, kind, id, type, col, row) {
+    let all = 0;
+    for (const e of this.entities) {
+      if (e.kind !== kind || e.id !== id || e.type !== type) continue;
+      if (e.all) all = e.delta; else if (e.area === a && e.room === r && Math.abs(e.col - col) <= 2 && Math.abs(e.row - row) <= 2) return e.delta;
+    }
+    return all;
+  }
+}
+function stepCells(e, layers, cells, step) {
+  for (let L = 0; L < 2; ++L) {
+    if (!(layers & (1 << L))) continue;
+    for (const i of cells) {
+      const f = e.flags[L][i], limit = (f & CELL_SET) ? HEIGHT_LIMIT : DELTA_LIMIT;
+      const v = clamp((f & CELL_HAS ? e.value[L][i] : 0) + step, -limit, limit);
+      e.value[L][i] = v;
+      e.flags[L][i] = (v !== 0 || (f & CELL_SET)) ? (f | CELL_HAS) : 0;
+    }
+  }
+}
+
+/* ===== Room blob (GET /room) ===== */
+function parseRoom(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== "TMCR") throw new Error("не той формат кімнати");
+  const r = { version: dv.getUint16(4, true), area: u8[6], room: u8[7] };
+  const h = i => dv.getUint16(8 + i * 2, true);
+  Object.assign(r, { width: h(0), height: h(1), originX: h(2), originY: h(3), bg: [h(4), h(5)], tileset: h(6), cols: h(7), rows: h(8), scrollX: dv.getInt16(26, true), scrollY: dv.getInt16(28, true), entityCount: h(11) });
+  let off = 32;
+  const take16 = n => { const a = new Uint16Array(buf.slice(off, off + n * 2)); off += n * 2; return a; };
+  const take8 = n => { const a = new Uint8Array(buf.slice(off, off + n)); off += n; return a; };
+  r.layers = [];
+  for (let L = 0; L < 2; ++L) r.layers.push({ map: take16(4096), collision: take8(4096), act: take8(4096), sub: take16(8192) });
+  r.vram = take8(0x10000);
+  r.palette = take16(256);
+  r.autoGround = new Int8Array(take8(SIDE * SIDE).buffer);
+  r.autoHeight = new Int8Array(take8(SIDE * SIDE).buffer);
+  r.autoTop = new Int8Array(take8(SIDE * SIDE).buffer);
+  r.kind = take8(SIDE * SIDE);
+  r.hash = [new Uint32Array(buf.slice(off, off + 16384)), new Uint32Array(buf.slice(off + 16384, off + 32768))]; off += 32768;
+  r.entities = [];
+  for (let i = 0; i < r.entityCount; ++i, off += 12) r.entities.push({ kind: u8[off], id: u8[off + 1], type: u8[off + 2], type2: u8[off + 3], x: dv.getInt16(off + 4, true), y: dv.getInt16(off + 6, true), z: dv.getInt16(off + 8, true) });
+  r.buffer = buf;
+  return r;
+}
+function rgb555(c) { return [(c & 31) << 3 | (c & 31) >> 2, ((c >> 5) & 31) << 3 | ((c >> 5) & 31) >> 2, ((c >> 10) & 31) << 3 | ((c >> 10) & 31) >> 2]; }
+function renderLayer(r, L) {
+  const cv = document.createElement("canvas"); cv.width = r.width; cv.height = r.height;
+  const bgcnt = r.bg[L]; if (!bgcnt) return cv;
+  const ctx = cv.getContext("2d"), img = ctx.createImageData(r.width, r.height), px = img.data;
+  const base = ((bgcnt >> 2) & 3) * 0x4000, lay = r.layers[L], pal = [...r.palette].map(rgb555);
+  const tw = r.width >> 4, th = r.height >> 4;
+  for (let ty = 0; ty < th; ++ty) for (let tx = 0; tx < tw; ++tx) {
+    const idx = lay.map[tx | (ty << 6)] & 2047;
+    for (let q = 0; q < 4; ++q) {
+      const e = lay.sub[idx * 4 + q], tile = e & 0x3ff, hf = (e >> 10) & 1, vf = (e >> 11) & 1, pb = (e >> 12) * 16;
+      const a = base + tile * 32;
+      const ox = tx * 16 + (q & 1) * 8, oy = ty * 16 + (q >> 1) * 8;
+      for (let y = 0; y < 8; ++y) for (let x = 0; x < 8; ++x) {
+        const sx = hf ? 7 - x : x, sy = vf ? 7 - y : y;
+        const b = r.vram[(a + sy * 4 + (sx >> 1)) & 0xffff], ci = (sx & 1) ? b >> 4 : b & 15;
+        if (!ci) continue;
+        const c = pal[pb + ci], p = ((oy + y) * r.width + ox + x) * 4;
+        px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = 255;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv;
+}
+
+/* ===== App state ===== */
+const S = {
+  base: null, connected: false, status: null, rooms: [], roomsByArea: new Map(),
+  room: null, layerImg: [null, null], edits: new Edits(), dirtyRooms: new Set(), rulesDirty: false, entitiesDirty: false,
+  tool: "rect", layers: LAYER_BOTH, selection: new Uint8Array(SIDE * SIDE), selCount: 0,
+  zoom: 2, panX: 0, panY: 0, undo: [], redo: [], drag: null, hover: null, selEntity: null,
+  heights: null, pushTimer: 0, selectTimer: 0, followBusy: false, lastRev: -1,
+};
+const $ = id => document.getElementById(id);
+const view = $("view"), ctx = view.getContext("2d");
+
+function toast(text, ms = 2600) { const d = document.createElement("div"); d.textContent = text; $("toast").append(d); setTimeout(() => d.remove(), ms); }
+function setChip(text, cls) { const c = $("connChip"); c.textContent = text; c.className = "chip " + (cls || ""); }
+
+/* ===== Local cache (IndexedDB): rooms seen, and the edits ===== */
+const DB = { db: null };
+function dbOpen() {
+  return new Promise(res => {
+    setTimeout(res, 1500); /* some browsers never answer for a page opened from a file */
+    try {
+      const rq = indexedDB.open("tmc-stereo-editor", 1);
+      rq.onupgradeneeded = () => { rq.result.createObjectStore("rooms"); rq.result.createObjectStore("kv"); };
+      rq.onsuccess = () => { DB.db = rq.result; res(); };
+      rq.onerror = () => res();
+    } catch (e) { res(); }
+  });
+}
+function dbPut(store, key, value) { if (!DB.db) return; try { DB.db.transaction(store, "readwrite").objectStore(store).put(value, key); } catch (e) {} }
+function dbGet(store, key) {
+  return new Promise(res => { if (!DB.db) return res(undefined); try { const rq = DB.db.transaction(store).objectStore(store).get(key); rq.onsuccess = () => res(rq.result); rq.onerror = () => res(undefined); } catch (e) { res(undefined); } });
+}
+function dbKeys(store) {
+  return new Promise(res => { if (!DB.db) return res([]); try { const rq = DB.db.transaction(store).objectStore(store).getAllKeys(); rq.onsuccess = () => res(rq.result); rq.onerror = () => res([]); } catch (e) { res([]); } });
+}
+let saveLocalTimer = 0;
+function saveLocal() { clearTimeout(saveLocalTimer); saveLocalTimer = setTimeout(() => { dbPut("kv", "edits", S.edits.fileText()); dbPut("kv", "dirty", JSON.stringify({ rooms: [...S.dirtyRooms], rules: S.rulesDirty, entities: S.entitiesDirty })); }, 400); }
+const cachedRooms = new Set();
+
+/* ===== Network ===== */
+async function api(path, opts = {}) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), opts.timeout || 8000);
+  try {
+    const res = await fetch(S.base + path, { method: opts.method || "GET", body: opts.body, headers: opts.body !== undefined ? { "Content-Type": "text/plain" } : undefined, signal: ctl.signal, cache: "no-store" });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return opts.binary ? await res.arrayBuffer() : opts.json ? await res.json() : await res.text();
+  } finally { clearTimeout(t); }
+}
+async function connect() {
+  let addr = $("addr").value.trim(); if (!addr) { toast("Впишіть адресу консолі"); return; }
+  localStorage.setItem("tmc-addr", addr);
+  if (!/^https?:/.test(addr)) addr = "http://" + addr;
+  if (!/:\d+$/.test(addr.replace(/^https?:\/\//, ""))) addr += ":" + PORT;
+  S.base = addr; setChip("підключення…", "warn");
+  try {
+    S.status = await api("/status", { json: true });
+    S.rooms = (await api("/rooms", { json: true, timeout: 15000 })).map(([area, room, mapX, mapY, w, h, tileset]) => ({ area, room, mapX, mapY, w, h, tileset }));
+    dbPut("kv", "rooms", JSON.stringify(S.rooms));
+    S.connected = true; setChip("підключено", "ok");
+    buildRoomTree();
+    await pushPending();
+    const shared = await api("/edits?kinds=6");
+    if (!S.rulesDirty && !S.entitiesDirty) S.edits.importText(shared, 6);
+    if (S.status.inGame && !S.status.transition) await loadCurrentRoom();
+    pollStatus();
+  } catch (e) { S.connected = false; setChip("немає зв'язку", "bad"); toast("Не вдалося підключитися: " + e.message); }
+}
+async function pollStatus() {
+  if (!S.connected) return;
+  try {
+    const st = await api("/status", { json: true, timeout: 4000 });
+    const prev = S.status; S.status = st;
+    setChip(`${hex2(st.area)}:${hex2(st.room)}${st.live ? "" : " · 3D вимкнено"}${st.editor ? " · редактор 3D відкритий" : ""}`, st.live ? "ok" : "warn");
+    if ($("follow").checked && st.inGame && !st.transition && (!S.room || st.area !== S.room.area || st.room !== S.room.room) && !S.followBusy) await loadCurrentRoom();
+    else if (S.room && st.area === S.room.area && st.room === S.room.room && st.rev !== S.lastRev && !S.pushTimer && !S.dirtyRooms.size) {
+      /* Someone changed the edits on the console itself: take them. */
+      S.lastRev = st.rev;
+      const text = await api(`/edits?kinds=1&area=${S.room.area}&room=${S.room.room}`);
+      S.edits.importText(text, 1, [S.room.area, S.room.room]); recompute(); draw();
+    }
+    /* A selection made on the console's own 3D editor shows here too. */
+    if (S.room && st.selRev !== undefined && st.selRev !== S.lastSelRev && !S.drag && !S.selectTimer) {
+      S.lastSelRev = st.selRev;
+      const text = await api("/selection");
+      const lines = text.trim().split("\n"); const [sa, sr] = (lines.shift() || "").split(" ").map(Number);
+      if (sa === S.room.area && sr === S.room.room) {
+        const cells = [];
+        for (const l of lines) { const [row, c0, c1] = l.split(" ").map(Number); for (let c = c0; c <= c1; ++c) cells.push(row * SIDE + c); }
+        S.selection.fill(0); S.selCount = 0; for (const i of cells) setSel(i, true); updateSelInfo(); draw();
+      }
+    }
+    if (S.room && st.area === S.room.area && st.room === S.room.room) { S.linkPos = [st.linkX, st.linkY]; S.camera = [st.scrollX - st.originX, st.scrollY - st.originY]; draw(); }
+    markCurrentRoomInTree();
+  } catch (e) { setChip("зв'язок перервано", "bad"); }
+  setTimeout(pollStatus, 700);
+}
+async function loadCurrentRoom() {
+  S.followBusy = true;
+  try {
+    const buf = await api("/room", { binary: true, timeout: 20000 });
+    const room = parseRoom(buf);
+    dbPut("rooms", roomKey(room.area, room.room), buf); cachedRooms.add(roomKey(room.area, room.room));
+    const k = roomKey(room.area, room.room);
+    if (!S.dirtyRooms.has(k)) {
+      const text = await api(`/edits?kinds=1&area=${room.area}&room=${room.room}`);
+      S.edits.importText(text, 1, [room.area, room.room]);
+    }
+    const ents = await api("/entities", { json: true }).catch(() => null);
+    if (ents) room.entities = ents;
+    showRoom(room);
+    S.lastRev = S.status ? S.status.rev : -1;
+  } catch (e) { toast("Кімната не завантажилась: " + e.message); }
+  S.followBusy = false;
+}
+async function gotoRoom(area, room) {
+  const k = roomKey(area, room);
+  if (S.connected) {
+    try {
+      await api(`/goto?area=${area}&room=${room}`, { method: "POST", body: "" });
+      toast(`Переходжу в ${hex2(area)}:${hex2(room)}…`);
+      for (let i = 0; i < 40; ++i) {
+        await new Promise(r => setTimeout(r, 250));
+        const st = await api("/status", { json: true });
+        if (st.area === area && st.room === room && !st.transition && st.inGame) { S.status = st; await new Promise(r => setTimeout(r, 400)); await loadCurrentRoom(); return; }
+      }
+      toast("Консоль не дійшла до кімнати (заставка чи меню?)");
+    } catch (e) { toast("Перехід не вдався: " + e.message); }
+  } else {
+    const buf = await dbGet("rooms", k);
+    if (buf) showRoom(parseRoom(buf)); else toast("Цієї кімнати немає в кеші — підключіться до консолі");
+  }
+}
+function schedulePush() {
+  clearTimeout(S.pushTimer);
+  $("pending").textContent = S.connected ? "надсилаю…" : "зміни збережено локально";
+  S.pushTimer = setTimeout(async () => { S.pushTimer = 0; await pushPending(); }, 180);
+  saveLocal();
+}
+async function pushPending() {
+  if (!S.connected) { $("pending").textContent = (S.dirtyRooms.size || S.rulesDirty || S.entitiesDirty) ? "зміни збережено локально; не надіслано" : ""; return; }
+  try {
+    for (const k of [...S.dirtyRooms]) {
+      const [a, r] = k.split(":").map(Number), e = S.edits.room(a, r, false);
+      await api(`/edits?kinds=1&area=${a}&room=${r}`, { method: "POST", body: e ? S.edits.roomCellsText(e).join("\n") + "\n" : "" });
+      S.dirtyRooms.delete(k);
+    }
+    if (S.rulesDirty) { await api("/edits?kinds=2", { method: "POST", body: S.edits.rulesText().join("\n") + "\n" }); S.rulesDirty = false; }
+    if (S.entitiesDirty) { await api("/edits?kinds=4", { method: "POST", body: S.edits.entitiesText().join("\n") + "\n" }); S.entitiesDirty = false; }
+    const st = await api("/status", { json: true }); S.lastRev = st.rev;
+    $("pending").textContent = "на консолі";
+  } catch (e) { $("pending").textContent = "не надіслано: " + e.message; }
+  saveLocal();
+}
+function scheduleSelectPush() {
+  clearTimeout(S.selectTimer);
+  S.selectTimer = setTimeout(() => {
+    S.selectTimer = 0;
+    if (!S.connected || !S.room) return;
+    const lines = [];
+    for (let row = 0; row < SIDE; ++row) for (let col = 0; col < SIDE;) {
+      if (!S.selection[row * SIDE + col]) { ++col; continue; }
+      let end = col; while (end + 1 < SIDE && S.selection[row * SIDE + end + 1]) ++end;
+      lines.push(`${row} ${col} ${end}`); col = end + 1;
+    }
+    api(`/select?area=${S.room.area}&room=${S.room.room}`, { method: "POST", body: lines.slice(0, 4000).join("\n") }).catch(() => {});
+  }, 120);
+}
+
+/* ===== Rooms tree ===== */
+function buildRoomTree() {
+  S.roomsByArea = new Map();
+  for (const r of S.rooms) { if (!S.roomsByArea.has(r.area)) S.roomsByArea.set(r.area, []); S.roomsByArea.get(r.area).push(r); }
+  renderRoomTree();
+}
+function renderRoomTree() {
+  const q = $("roomSearch").value.trim().toLowerCase();
+  const tree = $("roomTree"); tree.innerHTML = "";
+  for (const [area, rooms] of S.roomsByArea) {
+    const name = AREA_NAMES[area] || `Area ${hex2(area)}`;
+    const shown = rooms.filter(r => !q || name.toLowerCase().includes(q) || `${hex2(r.area)}:${hex2(r.room)}`.toLowerCase().includes(q) || hex2(area).toLowerCase() === q);
+    if (!shown.length) continue;
+    const box = document.createElement("div"); box.className = "area" + (q || (S.room && S.room.area === area) ? " open" : "");
+    const edited = rooms.filter(r => S.edits.rooms.has(roomKey(r.area, r.room))).length;
+    box.innerHTML = `<div class="head"><span>${hex2(area)} · ${name}</span><span class="small">${edited ? `<span class="badge">✎${edited}</span> ` : ""}${rooms.length}</span></div><div class="rooms"></div>`;
+    box.querySelector(".head").onclick = () => box.classList.toggle("open");
+    const list = box.querySelector(".rooms");
+    for (const r of shown) {
+      const it = document.createElement("div"); it.className = "roomItem"; it.dataset.key = roomKey(r.area, r.room);
+      const k = roomKey(r.area, r.room);
+      it.innerHTML = `<span>${hex2(r.room)} <span class="muted small">${r.w}×${r.h}</span></span><span>${S.edits.rooms.has(k) ? '<span class="badge">✎</span>' : ""}${cachedRooms.has(k) ? '<span class="cached">●</span>' : ""}</span>`;
+      it.onclick = () => gotoRoom(r.area, r.room);
+      list.append(it);
+    }
+    tree.append(box);
+  }
+  markCurrentRoomInTree();
+}
+function markCurrentRoomInTree() {
+  const k = S.room ? roomKey(S.room.area, S.room.room) : "";
+  for (const it of document.querySelectorAll(".roomItem")) it.classList.toggle("current", it.dataset.key === k);
+}
+
+/* ===== Heights: measured, then tile rules, then room cells (as the game) ===== */
+function recompute() {
+  const r = S.room; if (!r) return;
+  const bottom = new Int8Array(r.autoHeight), top = new Int8Array(r.autoTop);
+  const rule = new Uint8Array(SIDE * SIDE); /* bit per layer: a tile rule touched it */
+  if (!$("showAuto").checked) {
+    if (S.edits.rules.size) for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) {
+      const i = row * SIDE + col, tile = (col >> 1) | ((row >> 1) << 6), q = (col & 1) | ((row & 1) << 1);
+      for (let L = 0; L < 2; ++L) {
+        const h = r.hash[L][tile]; if (!h) continue;
+        const ru = S.edits.rules.get(Edits.ruleKey(L, h, q)); if (!ru) continue;
+        const arr = L ? top : bottom; arr[i] = ru.set ? ru.value : clamp(arr[i] + ru.value, -100, 100); rule[i] |= 1 << L;
+      }
+    }
+    const e = S.edits.room(r.area, r.room, false);
+    if (e) for (let i = 0; i < SIDE * SIDE; ++i) for (let L = 0; L < 2; ++L) {
+      const f = e.flags[L][i]; if (!(f & CELL_HAS)) continue;
+      const arr = L ? top : bottom; arr[i] = (f & CELL_SET) ? e.value[L][i] : clamp(arr[i] + e.value[L][i], -100, 100);
+    }
+  }
+  S.heights = { bottom, top, rule };
+}
+function cellHeight(i, layers = S.layers) {
+  const b = S.heights.bottom[i], t = S.heights.top[i];
+  return layers === LAYER_BOTTOM ? b : layers === LAYER_TOP ? t : Math.max(b, t);
+}
+const UP_COLOURS = [[60, 220, 60], [170, 230, 40], [250, 220, 40], [250, 150, 30], [240, 60, 40], [200, 40, 170]];
+function heightColour(h) {
+  if (h === 0) return null;
+  if (h < 0) return `rgba(40,90,255,${(70 + 25 * Math.min(-h, 4)) / 255})`;
+  const c = UP_COLOURS[Math.min(h, 6) - 1]; return `rgba(${c[0]},${c[1]},${c[2]},${110 / 255})`;
+}
+function buildLegend() {
+  const lg = $("legend"); lg.innerHTML = '<span class="small muted" style="width:auto;margin-right:4px">висота</span>';
+  for (let h = -2; h <= 6; ++h) { const s = document.createElement("span"); const c = heightColour(h); s.style.background = c ? c.replace(/[\d.]+\)$/, "1)") : "transparent"; s.style.border = "1px solid #444"; s.textContent = h; lg.append(s); }
+}
+
+/* ===== Showing a room ===== */
+function showRoom(room) {
+  const sameRoom = S.room && S.room.area === room.area && S.room.room === room.room;
+  S.room = room;
+  S.layerImg = [renderLayer(room, 0), renderLayer(room, 1)];
+  if (!sameRoom) { S.selection.fill(0); S.selCount = 0; S.selEntity = null; S.undo = []; S.redo = []; fitView(); }
+  $("empty").style.display = "none";
+  recompute(); updateSelInfo(); renderEntities(); renderRules(); draw(); markCurrentRoomInTree();
+  $("hud").innerHTML = `<span class="chip">${hex2(room.area)}:${hex2(room.room)} · ${AREA_NAMES[room.area] || ""}</span><span class="chip">${room.width}×${room.height} px · ${room.cols}×${room.rows} клітинок</span>`;
+}
+function fitView() {
+  const r = S.room; if (!r) return;
+  const w = view.clientWidth, h = view.clientHeight;
+  const fit = Math.min(w / r.width, h / r.height) * 0.96;
+  S.zoom = fit >= 1 ? Math.min(8, Math.floor(fit)) : Math.max(0.25, Math.floor(fit * 4) / 4);
+  S.panX = (w - r.width * S.zoom) / 2; S.panY = (h - r.height * S.zoom) / 2;
+}
+function resize() { const dpr = 1; view.width = view.clientWidth * dpr; view.height = view.clientHeight * dpr; draw(); }
+function toCell(mx, my) { const x = (mx - S.panX) / S.zoom, y = (my - S.panY) / S.zoom; return { x, y, col: Math.floor(x / 8), row: Math.floor(y / 8) }; }
+function inRoom(col, row) { return S.room && col >= 0 && row >= 0 && col < S.room.cols && row < S.room.rows; }
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#0d0e11"; ctx.fillRect(0, 0, view.width, view.height);
+  const r = S.room; if (!r || !S.heights) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.setTransform(S.zoom, 0, 0, S.zoom, S.panX, S.panY);
+  const [c0, c1] = rgb555(r.palette[0]);
+  if ($("preview3d").checked) { drawAnaglyph(); }
+  else {
+    ctx.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; ctx.fillRect(0, 0, r.width, r.height);
+    if ($("showBottom").checked) ctx.drawImage(S.layerImg[0], 0, 0);
+    if ($("showTop").checked) ctx.drawImage(S.layerImg[1], 0, 0);
+  }
+  /* Visible cells only. */
+  const vx0 = Math.max(0, Math.floor(-S.panX / S.zoom / 8)), vy0 = Math.max(0, Math.floor(-S.panY / S.zoom / 8));
+  const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
+  if ($("showHeat").checked && !$("preview3d").checked) {
+    for (let row = vy0; row <= vy1; ++row) {
+      let runStart = vx0, runColour = null;
+      for (let col = vx0; col <= vx1 + 1; ++col) {
+        const colour = col <= vx1 ? heightColour(cellHeight(row * SIDE + col)) : null;
+        if (colour === runColour) continue;
+        if (runColour) { ctx.fillStyle = runColour; ctx.fillRect(runStart * 8, row * 8, (col - runStart) * 8, 8); }
+        runStart = col; runColour = colour;
+      }
+    }
+  }
+  /* Edited cells: a white bar; tile-rule cells: a cyan frame. */
+  const e = S.edits.room(r.area, r.room, false);
+  const layerMask = S.layers;
+  ctx.lineWidth = 1 / S.zoom;
+  for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
+    const i = row * SIDE + col;
+    if (e && ((layerMask & 1 && e.flags[0][i] & CELL_HAS) || (layerMask & 2 && e.flags[1][i] & CELL_HAS))) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(col * 8, row * 8 + 0.5, 8, 1.2); }
+    if (S.heights.rule[i] & layerMask) { ctx.strokeStyle = "rgba(80,220,255,.75)"; ctx.strokeRect(col * 8 + 1, row * 8 + 1, 6, 6); }
+  }
+  if ($("showGrid").checked && S.zoom >= 2) {
+    ctx.beginPath();
+    for (let col = vx0; col <= vx1 + 1; ++col) { if (S.zoom < 3 && col & 1) continue; ctx.moveTo(col * 8, vy0 * 8); ctx.lineTo(col * 8, (vy1 + 1) * 8); }
+    for (let row = vy0; row <= vy1 + 1; ++row) { if (S.zoom < 3 && row & 1) continue; ctx.moveTo(vx0 * 8, row * 8); ctx.lineTo((vx1 + 1) * 8, row * 8); }
+    ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 1 / S.zoom; ctx.stroke();
+    ctx.beginPath();
+    for (let col = vx0 - (vx0 & 1); col <= vx1 + 1; col += 2) { ctx.moveTo(col * 8, vy0 * 8); ctx.lineTo(col * 8, (vy1 + 1) * 8); }
+    for (let row = vy0 - (vy0 & 1); row <= vy1 + 1; row += 2) { ctx.moveTo(vx0 * 8, row * 8); ctx.lineTo((vx1 + 1) * 8, row * 8); }
+    ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.stroke();
+  }
+  /* The console's camera. */
+  if (S.camera) { ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.setLineDash([4 / S.zoom, 3 / S.zoom]); ctx.strokeRect(S.camera[0], S.camera[1], 240, 160); ctx.setLineDash([]); }
+  drawSelection(vx0, vy0, vx1, vy1);
+  if (S.drag && S.drag.preview) S.drag.preview();
+  if ($("showEntities").checked) drawEntities();
+  if (S.hover && inRoom(S.hover.col, S.hover.row)) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / S.zoom; ctx.strokeRect(S.hover.col * 8, S.hover.row * 8, 8, 8); }
+}
+function drawSelection(vx0, vy0, vx1, vy1) {
+  if (!S.selCount) return;
+  ctx.fillStyle = "rgba(255,230,40,.18)";
+  ctx.beginPath();
+  for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
+    const i = row * SIDE + col; if (!S.selection[i]) continue;
+    ctx.fillRect(col * 8, row * 8, 8, 8);
+    const x = col * 8, y = row * 8;
+    if (!row || !S.selection[i - SIDE]) { ctx.moveTo(x, y); ctx.lineTo(x + 8, y); }
+    if (row + 1 >= SIDE || !S.selection[i + SIDE]) { ctx.moveTo(x, y + 8); ctx.lineTo(x + 8, y + 8); }
+    if (!col || !S.selection[i - 1]) { ctx.moveTo(x, y); ctx.lineTo(x, y + 8); }
+    if (col + 1 >= SIDE || !S.selection[i + 1]) { ctx.moveTo(x + 8, y); ctx.lineTo(x + 8, y + 8); }
+  }
+  const t = (performance.now() / 120) | 0;
+  ctx.lineWidth = 2 / S.zoom; ctx.strokeStyle = "#000"; ctx.stroke();
+  ctx.setLineDash([3 / S.zoom, 3 / S.zoom]); ctx.lineDashOffset = -t / S.zoom; ctx.strokeStyle = "#ffe628"; ctx.stroke(); ctx.setLineDash([]);
+}
+function drawEntities() {
+  const r = S.room;
+  ctx.font = `${10 / S.zoom * Math.min(S.zoom, 2)}px system-ui`;
+  for (const en of r.entities || []) {
+    if (en.kind === 9) continue;
+    const sel = S.selEntity && en.kind === S.selEntity.kind && en.id === S.selEntity.id && en.type === S.selEntity.type && (S.selEntity.all || (Math.abs(en.x - S.selEntity.x) < 2 && Math.abs(en.y - S.selEntity.y) < 2));
+    const y = en.y + Math.min(en.z || 0, 0);
+    ctx.lineWidth = (sel ? 2 : 1) / S.zoom;
+    ctx.strokeStyle = sel ? "#4fc3f7" : en.kind === 1 ? "#fff" : "rgba(255,255,255,.55)";
+    ctx.strokeRect(en.x - 8, y - 18, 16, 20);
+    const d = S.edits.entityDelta(r.area, r.room, en.kind, en.id, en.type, en.x >> 3, en.y >> 3);
+    if (d || sel) { ctx.fillStyle = sel ? "#4fc3f7" : "#ffd54f"; ctx.fillText(d > 0 ? "+" + d : String(d), en.x + 9, y - 10); }
+  }
+  if (S.linkPos) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.beginPath(); ctx.arc(S.linkPos[0], S.linkPos[1], 2.5, 0, Math.PI * 2); ctx.fill(); }
+}
+/* Red/cyan anaglyph from the corrected heights: every 8x8 cell of each
+ * layer drawn moved by its depth, deeper cells first. */
+function drawAnaglyph() {
+  const r = S.room, w = r.width, h = r.height;
+  if (!S.anaCanvas) { S.anaCanvas = [document.createElement("canvas"), document.createElement("canvas"), document.createElement("canvas")]; }
+  const [left, right, out] = S.anaCanvas;
+  for (const c of S.anaCanvas) { c.width = w; c.height = h; }
+  const base = 6; /* the ground's depth, as on MEDIUM */
+  const eyes = [[left, -0.5], [right, 0.5]];
+  for (const [cv, sign] of eyes) {
+    const g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
+    g.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; g.fillRect(0, 0, w, h);
+    for (let L = 0; L < 2; ++L) {
+      if (L === 0 && !$("showBottom").checked) continue;
+      if (L === 1 && !$("showTop").checked) continue;
+      const heights = L ? S.heights.top : S.heights.bottom, start = L ? 3 : 0;
+      const order = [];
+      for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) order.push([heights[row * SIDE + col], col, row]);
+      order.sort((a, b) => a[0] - b[0]);
+      for (const [hh, col, row] of order) {
+        const shift = Math.round((base - start - hh) * sign * 2);
+        g.drawImage(S.layerImg[L], col * 8, row * 8, 8, 8, col * 8 + shift, row * 8, 8, 8);
+      }
+    }
+  }
+  const o = out.getContext("2d"), L = left.getContext("2d").getImageData(0, 0, w, h), R = right.getContext("2d").getImageData(0, 0, w, h);
+  const D = o.createImageData(w, h);
+  for (let i = 0; i < D.data.length; i += 4) {
+    const gl = L.data[i] * .3 + L.data[i + 1] * .59 + L.data[i + 2] * .11;
+    D.data[i] = gl; D.data[i + 1] = R.data[i + 1]; D.data[i + 2] = R.data[i + 2]; D.data[i + 3] = 255;
+  }
+  o.putImageData(D, 0, 0);
+  ctx.drawImage(out, 0, 0);
+}
+
+/* ===== Selection ===== */
+function setSel(i, on) { if (!!S.selection[i] === on) return; S.selection[i] = on ? 1 : 0; S.selCount += on ? 1 : -1; }
+function applySel(cells, mode) {
+  if (mode === "replace") { S.selection.fill(0); S.selCount = 0; }
+  for (const i of cells) setSel(i, mode !== "sub");
+  S.selEntity = null; renderEntities();
+  updateSelInfo(); scheduleSelectPush(); draw();
+}
+function selModeOf(ev) { return ev.shiftKey ? "add" : ev.altKey ? "sub" : "replace"; }
+function rectCells(a, b) {
+  const out = [], x0 = Math.max(0, Math.min(a.col, b.col)), x1 = Math.min(S.room.cols - 1, Math.max(a.col, b.col));
+  const y0 = Math.max(0, Math.min(a.row, b.row)), y1 = Math.min(S.room.rows - 1, Math.max(a.row, b.row));
+  for (let y = y0; y <= y1; ++y) for (let x = x0; x <= x1; ++x) out.push(y * SIDE + x);
+  return out;
+}
+function brushCells(c) {
+  const n = +$("brushSize").value, out = [], o = Math.floor((n - 1) / 2);
+  for (let y = c.row - o; y < c.row - o + n; ++y) for (let x = c.col - o; x < c.col - o + n; ++x) if (inRoom(x, y)) out.push(y * SIDE + x);
+  return out;
+}
+function tileKey(i) {
+  const col = i % SIDE, row = (i / SIDE) | 0, tile = (col >> 1) | ((row >> 1) << 6), q = (col & 1) | ((row & 1) << 1);
+  let k = "";
+  if (S.layers & 1) k += S.room.hash[0][tile] + ":";
+  if (S.layers & 2) k += S.room.hash[1][tile] + ":";
+  return k + q;
+}
+function sameTileCells(c) {
+  const key = tileKey(c.row * SIDE + c.col), out = [];
+  for (let row = 0; row < S.room.rows; ++row) for (let col = 0; col < S.room.cols; ++col) if (tileKey(row * SIDE + col).replace(/:\d$/, "") === key.replace(/:\d$/, "")) out.push(row * SIDE + col);
+  return out;
+}
+function wandCells(c) {
+  const byTile = $("wandTile").checked, start = c.row * SIDE + c.col;
+  const want = byTile ? tileKey(start).replace(/:\d$/, "") : cellHeight(start);
+  const seen = new Uint8Array(SIDE * SIDE), out = [], stack = [start]; seen[start] = 1;
+  while (stack.length) {
+    const i = stack.pop(); out.push(i);
+    const col = i % SIDE, row = (i / SIDE) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = col + dx, y = row + dy; if (!inRoom(x, y)) continue;
+      const j = y * SIDE + x; if (seen[j]) continue;
+      if ((byTile ? tileKey(j).replace(/:\d$/, "") : cellHeight(j)) !== want) continue;
+      seen[j] = 1; stack.push(j);
+    }
+  }
+  return out;
+}
+function lassoCells(points) {
+  const out = []; if (points.length < 3) return out;
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  for (const p of points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  for (let row = Math.max(0, Math.floor(minY / 8)); row <= Math.min(S.room.rows - 1, Math.floor(maxY / 8)); ++row)
+    for (let col = Math.max(0, Math.floor(minX / 8)); col <= Math.min(S.room.cols - 1, Math.floor(maxX / 8)); ++col) {
+      const x = col * 8 + 4, y = row * 8 + 4; let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const a = points[i], b = points[j];
+        if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+      }
+      if (inside) out.push(row * SIDE + col);
+    }
+  return out;
+}
+function selectedCells() { const out = []; for (let i = 0; i < SIDE * SIDE; ++i) if (S.selection[i]) out.push(i); return out; }
+function updateSelInfo() {
+  const el = $("selInfo");
+  if (!S.room || !S.selCount) { el.textContent = S.selEntity ? "вибрано спрайт — дивіться «Спрайти кімнати»" : "нічого не виділено"; return; }
+  let lo = 1e9, hi = -1e9, edited = 0, ruled = 0;
+  const e = S.edits.room(S.room.area, S.room.room, false);
+  for (let i = 0; i < SIDE * SIDE; ++i) if (S.selection[i]) {
+    const h = cellHeight(i); lo = Math.min(lo, h); hi = Math.max(hi, h);
+    if (e && ((S.layers & 1 && e.flags[0][i] & CELL_HAS) || (S.layers & 2 && e.flags[1][i] & CELL_HAS))) ++edited;
+    if (S.heights.rule[i] & S.layers) ++ruled;
+  }
+  el.innerHTML = `<b>${S.selCount}</b> клітинок · висота <b>${lo === hi ? lo : lo + "…" + hi}</b>` + (edited ? ` · з правками ${edited}` : "") + (ruled ? ` · за правилом ${ruled}` : "");
+}
+
+/* ===== Edits on the selection ===== */
+function beginChange() { S.undo.push(S.edits.snapshot(S.room.area, S.room.room)); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
+function roomChanged() { S.dirtyRooms.add(roomKey(S.room.area, S.room.room)); afterChange(); }
+function afterChange() { recompute(); updateSelInfo(); renderRules(); renderEntities(); draw(); schedulePush(); }
+function needSel() { if (!S.room || !S.selCount) { toast("Спершу виділіть клітинки"); return false; } return true; }
+function stepSel(step) {
+  if (S.selEntity) return stepEntity(step);
+  if (!needSel()) return;
+  beginChange(); stepCells(S.edits.room(S.room.area, S.room.room, true), S.layers, selectedCells(), step); roomChanged();
+}
+function setSelHeight(v) {
+  if (!needSel()) return;
+  v = clamp(v | 0, -HEIGHT_LIMIT, HEIGHT_LIMIT); beginChange();
+  const e = S.edits.room(S.room.area, S.room.room, true);
+  for (const i of selectedCells()) for (let L = 0; L < 2; ++L) if (S.layers & (1 << L)) { e.flags[L][i] = CELL_HAS | CELL_SET; e.value[L][i] = v; }
+  roomChanged();
+}
+function levelSel() {
+  if (!needSel()) return;
+  beginChange(); const e = S.edits.room(S.room.area, S.room.room, true), cells = selectedCells();
+  for (let L = 0; L < 2; ++L) {
+    if (!(S.layers & (1 << L))) continue;
+    const arr = L ? S.heights.top : S.heights.bottom; let lo = 1e9; for (const i of cells) lo = Math.min(lo, arr[i]);
+    for (const i of cells) { e.flags[L][i] = CELL_HAS | CELL_SET; e.value[L][i] = lo; }
+  }
+  roomChanged();
+}
+function resetSel() {
+  if (S.selEntity) return resetEntity();
+  if (!needSel()) return;
+  beginChange(); const e = S.edits.room(S.room.area, S.room.room, false);
+  if (e) for (const i of selectedCells()) for (let L = 0; L < 2; ++L) if (S.layers & (1 << L)) { e.flags[L][i] = 0; e.value[L][i] = 0; }
+  roomChanged();
+}
+function selectionTileKeys() {
+  const keys = new Map();
+  for (const i of selectedCells()) {
+    const col = i % SIDE, row = (i / SIDE) | 0, tile = (col >> 1) | ((row >> 1) << 6), q = (col & 1) | ((row & 1) << 1);
+    for (let L = 0; L < 2; ++L) { if (!(S.layers & (1 << L))) continue; const h = S.room.hash[L][tile]; if (h) keys.set(Edits.ruleKey(L, h, q), { layer: L, hash: h, q }); }
+  }
+  return [...keys.values()];
+}
+function ruleFromSel(set) {
+  if (!needSel()) return;
+  const v = clamp(+$("setValue").value | 0, -HEIGHT_LIMIT, HEIGHT_LIMIT), keys = selectionTileKeys();
+  if (!keys.length) { toast("У виділенні немає плиток вибраного шару"); return; }
+  beginChange();
+  for (const k of keys) S.edits.rules.set(Edits.ruleKey(k.layer, k.hash, k.q), { ...k, set, value: v });
+  S.rulesDirty = true; afterChange();
+  toast(`Правило для ${keys.length} різновидів плиток`);
+}
+function ruleDelSel() {
+  if (!needSel()) return;
+  beginChange(); let n = 0;
+  for (const k of selectionTileKeys()) if (S.edits.rules.delete(Edits.ruleKey(k.layer, k.hash, k.q))) ++n;
+  S.rulesDirty = true; afterChange(); toast(n ? `Прибрано правил: ${n}` : "Тут немає правил");
+}
+function renderRules() {
+  const box = $("ruleList"); box.innerHTML = "";
+  if (!S.room) return;
+  const counts = new Map();
+  for (let row = 0; row < S.room.rows; ++row) for (let col = 0; col < S.room.cols; ++col) {
+    const tile = (col >> 1) | ((row >> 1) << 6), q = (col & 1) | ((row & 1) << 1);
+    for (let L = 0; L < 2; ++L) { const h = S.room.hash[L][tile]; if (!h) continue; const k = Edits.ruleKey(L, h, q); if (S.edits.rules.has(k)) counts.set(k, (counts.get(k) || 0) + 1); }
+  }
+  const head = document.createElement("div"); head.className = "small muted"; head.textContent = `Правил у грі: ${S.edits.rules.size}; у цій кімнаті діють: ${counts.size}`; box.append(head);
+  for (const [k, n] of counts) {
+    const ru = S.edits.rules.get(k), it = document.createElement("div"); it.className = "listItem";
+    it.innerHTML = `<span>${ru.layer ? "верх" : "низ"} · ${(ru.hash >>> 0).toString(16).padStart(8, "0")}·${ru.q} <span class="muted small">${n} кл.</span></span><span class="v">${ru.set ? "=" : "+"}${ru.value}</span>`;
+    it.title = "Клік — виділити клітинки цього правила";
+    it.onclick = () => {
+      const cells = [];
+      for (let row = 0; row < S.room.rows; ++row) for (let col = 0; col < S.room.cols; ++col) {
+        const tile = (col >> 1) | ((row >> 1) << 6), q = (col & 1) | ((row & 1) << 1);
+        if (S.room.hash[ru.layer][tile] === ru.hash && q === ru.q) cells.push(row * SIDE + col);
+      }
+      applySel(cells, "replace");
+    };
+    box.append(it);
+  }
+}
+
+/* ===== Entities ===== */
+function renderEntities() {
+  const box = $("entityList"); box.innerHTML = "";
+  if (!S.room) return;
+  for (const en of S.room.entities || []) {
+    if (en.kind === 9) continue;
+    const d = S.edits.entityDelta(S.room.area, S.room.room, en.kind, en.id, en.type, en.x >> 3, en.y >> 3);
+    const it = document.createElement("div"); it.className = "listItem";
+    const sel = S.selEntity && en === S.selEntity.ref;
+    if (sel) it.classList.add("sel");
+    it.innerHTML = `<span>${ENTITY_KINDS[en.kind] || "kind " + en.kind} <span class="muted small">${hex2(en.kind)} ${hex2(en.id)} ${hex2(en.type)} · ${en.x >> 3},${en.y >> 3}</span></span><span class="v">${d ? (d > 0 ? "+" : "") + d : ""}</span>`;
+    it.onclick = () => selectEntity(en);
+    box.append(it);
+  }
+}
+function selectEntity(en) {
+  S.selEntity = { ref: en, kind: en.kind, id: en.id, type: en.type, x: en.x, y: en.y, all: $("entAll").checked };
+  S.selection.fill(0); S.selCount = 0; scheduleSelectPush(); updateSelInfo(); renderEntities(); draw();
+}
+function entityKey() {
+  const s = S.selEntity, all = $("entAll").checked;
+  return { kind: s.kind, id: s.id, type: s.type, all, area: all ? 0 : S.room.area, room: all ? 0 : S.room.room, col: all ? 0 : Math.max(0, s.x >> 3), row: all ? 0 : Math.max(0, s.y >> 3) };
+}
+function findEntityEdit(k) { return S.edits.entities.findIndex(e => e.kind === k.kind && e.id === k.id && e.type === k.type && e.all === k.all && (k.all || (e.area === k.area && e.room === k.room && e.col === k.col && e.row === k.row))); }
+function stepEntity(step) {
+  if (!S.selEntity) return;
+  beginChange(); const k = entityKey(); let i = findEntityEdit(k);
+  if (i < 0) { S.edits.entities.push({ ...k, delta: 0 }); i = S.edits.entities.length - 1; }
+  S.edits.entities[i].delta = clamp(S.edits.entities[i].delta + step, -DELTA_LIMIT, DELTA_LIMIT);
+  if (!S.edits.entities[i].delta) S.edits.entities.splice(i, 1);
+  S.entitiesDirty = true; afterChange();
+}
+function resetEntity() {
+  if (!S.selEntity) return;
+  beginChange(); const i = findEntityEdit(entityKey()); if (i >= 0) S.edits.entities.splice(i, 1);
+  S.entitiesDirty = true; afterChange();
+}
+
+/* ===== Undo ===== */
+function undo() { if (!S.undo.length || !S.room) return; const s = S.undo.pop(); S.redo.push(S.edits.snapshot(s.a, s.r)); S.edits.restore(s); markAllDirty(s); }
+function redo() { if (!S.redo.length || !S.room) return; const s = S.redo.pop(); S.undo.push(S.edits.snapshot(s.a, s.r)); S.edits.restore(s); markAllDirty(s); }
+function markAllDirty(s) { S.dirtyRooms.add(roomKey(s.a, s.r)); S.rulesDirty = true; S.entitiesDirty = true; afterChange(); }
+
+/* ===== Mouse ===== */
+view.addEventListener("contextmenu", ev => ev.preventDefault());
+view.addEventListener("mousedown", ev => {
+  if (!S.room) return;
+  const rect = view.getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top, c = toCell(mx, my);
+  if (ev.button === 2 || ev.button === 1 || S.tool === "pan" || S.spaceDown) { S.drag = { type: "pan", sx: mx, sy: my, px: S.panX, py: S.panY }; return; }
+  const mode = selModeOf(ev);
+  if (S.tool === "entity") {
+    let best = null, bd = 1e9;
+    for (const en of S.room.entities || []) { if (en.kind === 9) continue; const ey = en.y + Math.min(en.z || 0, 0); if (c.x < en.x - 10 || c.x > en.x + 10 || c.y < ey - 22 || c.y > ey + 4) continue; const d = (c.x - en.x) ** 2 + (c.y - ey + 8) ** 2; if (d < bd) { bd = d; best = en; } }
+    if (best) { if (ev.detail >= 2) $("entAll").checked = true; selectEntity(best); } else toast("Тут немає спрайта");
+    return;
+  }
+  if (!inRoom(c.col, c.row) && S.tool !== "rect" && S.tool !== "lasso") return;
+  if (S.tool === "pick") { const h = cellHeight(c.row * SIDE + c.col); $("setValue").value = h; toast(`Висота ${h}`); return; }
+  if (S.tool === "tile") { applySel(sameTileCells(c), mode); return; }
+  if (S.tool === "wand") { applySel(wandCells(c), mode); return; }
+  if (S.tool === "rect") {
+    S.drag = { type: "rect", start: c, end: c, mode, preview() { const cells = rectCells(this.start, this.end); ctx.strokeStyle = "#ffe628"; ctx.lineWidth = 1.5 / S.zoom; const x0 = Math.min(this.start.col, this.end.col), y0 = Math.min(this.start.row, this.end.row); ctx.strokeRect(Math.max(0, x0) * 8, Math.max(0, y0) * 8, (Math.abs(this.end.col - this.start.col) + 1) * 8, (Math.abs(this.end.row - this.start.row) + 1) * 8); void cells; } };
+  } else if (S.tool === "brush") {
+    if (mode === "replace") { S.selection.fill(0); S.selCount = 0; }
+    S.drag = { type: "brush", mode: mode === "sub" ? "sub" : "add" };
+    for (const i of brushCells(c)) setSel(i, S.drag.mode !== "sub"); updateSelInfo(); draw();
+  } else if (S.tool === "lasso") {
+    S.drag = { type: "lasso", mode, points: [{ x: c.x, y: c.y }], preview() { ctx.beginPath(); this.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.strokeStyle = "#ffe628"; ctx.lineWidth = 1.5 / S.zoom; ctx.stroke(); } };
+  }
+});
+window.addEventListener("mousemove", ev => {
+  if (!S.room) return;
+  const rect = view.getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top, c = toCell(mx, my);
+  if (S.drag) {
+    if (S.drag.type === "pan") { S.panX = S.drag.px + mx - S.drag.sx; S.panY = S.drag.py + my - S.drag.sy; }
+    else if (S.drag.type === "rect") S.drag.end = c;
+    else if (S.drag.type === "brush") { for (const i of brushCells(c)) setSel(i, S.drag.mode !== "sub"); updateSelInfo(); }
+    else if (S.drag.type === "lasso") S.drag.points.push({ x: c.x, y: c.y });
+    draw();
+  }
+  if (ev.target === view) {
+    const old = S.hover; S.hover = c; updateHover(); if (!old || old.col !== c.col || old.row !== c.row) draw();
+  }
+});
+window.addEventListener("mouseup", () => {
+  const d = S.drag; S.drag = null; if (!d) return;
+  if (d.type === "rect") applySel(rectCells(d.start, d.end), d.mode);
+  else if (d.type === "lasso") applySel(lassoCells(d.points), d.mode);
+  else if (d.type === "brush") { scheduleSelectPush(); updateSelInfo(); }
+  draw();
+});
+view.addEventListener("mouseleave", () => { S.hover = null; $("hover").textContent = "—"; draw(); });
+view.addEventListener("wheel", ev => {
+  if (!S.room) return; ev.preventDefault();
+  const rect = view.getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  const old = S.zoom, next = clamp(ev.deltaY < 0 ? old * 1.25 : old / 1.25, 0.5, 12);
+  const z = next >= 1 ? Math.round(next * 4) / 4 : next;
+  S.panX = mx - (mx - S.panX) * z / old; S.panY = my - (my - S.panY) * z / old; S.zoom = z; draw();
+}, { passive: false });
+function updateHover() {
+  const c = S.hover, r = S.room; if (!c || !inRoom(c.col, c.row)) { $("hover").textContent = "—"; return; }
+  const i = c.row * SIDE + c.col, tile = (c.col >> 1) | ((c.row >> 1) << 6);
+  const kind = KIND_NAMES[r.kind[i]] || r.kind[i];
+  const ab = r.autoHeight[i], at = r.autoTop[i], b = S.heights.bottom[i], t = S.heights.top[i];
+  $("hover").innerHTML = `клітинка <b>${c.col},${c.row}</b> · плитка ${(r.layers[0].map[tile] & 2047).toString(16)}/${(r.layers[1].map[tile] & 2047).toString(16)} · ${kind} · низ <b>${b}</b>${b !== ab ? ` (авто ${ab})` : ""} · верх <b>${t}</b>${t !== at ? ` (авто ${at})` : ""}`;
+}
+
+/* ===== Keys ===== */
+window.addEventListener("keydown", ev => {
+  if (ev.target.tagName === "INPUT" && ev.target.type !== "checkbox" && ev.key !== "Escape") { if (ev.key === "Enter" && ev.target.id === "setValue") setSelHeight(+ev.target.value); return; }
+  const k = ev.key.toLowerCase();
+  if (ev.ctrlKey || ev.metaKey) {
+    if (k === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }
+    else if (k === "y") { ev.preventDefault(); redo(); }
+    else if (k === "a" && S.room) { ev.preventDefault(); const cells = []; for (let row = 0; row < S.room.rows; ++row) for (let col = 0; col < S.room.cols; ++col) cells.push(row * SIDE + col); applySel(cells, "replace"); }
+    else if (k === "s") { ev.preventDefault(); saveOnConsole(); }
+    return;
+  }
+  if (k === " ") { S.spaceDown = true; ev.preventDefault(); return; }
+  const tools = { r: "rect", b: "brush", l: "lasso", w: "wand", t: "tile", i: "pick", e: "entity", h: "pan" };
+  if (tools[k]) return setTool(tools[k]);
+  if (k === "arrowup" || k === "+" || k === "=") { ev.preventDefault(); stepSel(1); }
+  else if (k === "arrowdown" || k === "-") { ev.preventDefault(); stepSel(-1); }
+  else if (k === "enter") setSelHeight(+$("setValue").value);
+  else if (k === "a") levelSel();
+  else if (k === "x" || k === "delete" || k === "backspace") resetSel();
+  else if (k === "escape") { S.selection.fill(0); S.selCount = 0; S.selEntity = null; updateSelInfo(); renderEntities(); scheduleSelectPush(); draw(); }
+  else if (k === "1") setLayers(LAYER_BOTH); else if (k === "2") setLayers(LAYER_BOTTOM); else if (k === "3") setLayers(LAYER_TOP);
+  else if (k === "v") toggle("liveOn");
+  else if (k === "g") toggle("showGrid"); else if (k === "c") toggle("showHeat"); else if (k === "p") toggle("preview3d");
+  else if (k === "f1") { ev.preventDefault(); $("helpDlg").showModal(); }
+});
+window.addEventListener("keyup", ev => { if (ev.key === " ") S.spaceDown = false; });
+function toggle(id) { $(id).checked = !$(id).checked; $(id).dispatchEvent(new Event("change")); }
+function setTool(t) { S.tool = t; for (const b of document.querySelectorAll("[data-tool]")) b.classList.toggle("on", b.dataset.tool === t); view.style.cursor = t === "pan" ? "grab" : "crosshair"; }
+function setLayers(l) { S.layers = l; for (const b of document.querySelectorAll("[data-layer]")) b.classList.toggle("on", +b.dataset.layer === l); updateSelInfo(); draw(); }
+
+/* ===== Files ===== */
+async function saveOnConsole() {
+  if (!S.connected) { toast("Немає зв'язку з консоллю — завантажте файл"); return; }
+  await pushPending();
+  try { await api("/save", { method: "POST", body: "" }); toast("Записано на картку консолі"); } catch (e) { toast("Не записано: " + e.message); }
+}
+function download() {
+  const blob = new Blob([S.edits.fileText()], { type: "text/plain" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "stereo_edits.txt"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+let fileAction = "open";
+function pickFile(action) { fileAction = action; $("fileInput").value = ""; $("fileInput").click(); }
+$("fileInput").addEventListener("change", async () => {
+  const f = $("fileInput").files[0]; if (!f) return;
+  const text = await f.text();
+  if (fileAction === "open") {
+    if (S.room) beginChange();
+    S.edits.importText(text, 7);
+    for (const k of S.edits.rooms.keys()) S.dirtyRooms.add(k);
+    S.rulesDirty = S.entitiesDirty = true; afterChange(); renderRoomTree(); toast("Файл відкрито; надсилаю на консоль");
+  } else startMerge(text);
+});
+let pendingMerge = null;
+function startMerge(text) {
+  const other = new Edits(); other.importText(text, 7);
+  let addCells = 0, conflictCells = 0, addRules = 0, conflictRules = 0, addEnts = 0;
+  for (const [k, oe] of other.rooms) {
+    const me = S.edits.rooms.get(k);
+    for (let L = 0; L < 2; ++L) for (let i = 0; i < SIDE * SIDE; ++i) {
+      if (!(oe.flags[L][i] & CELL_HAS)) continue;
+      if (!me || !(me.flags[L][i] & CELL_HAS)) ++addCells;
+      else if (me.flags[L][i] !== oe.flags[L][i] || me.value[L][i] !== oe.value[L][i]) ++conflictCells;
+    }
+  }
+  for (const [k, r] of other.rules) { const m = S.edits.rules.get(k); if (!m) ++addRules; else if (m.set !== r.set || m.value !== r.value) ++conflictRules; }
+  for (const e of other.entities) if (S.edits.entities.findIndex(x => x.kind === e.kind && x.id === e.id && x.type === e.type && x.all === e.all && x.area === e.area && x.room === e.room && x.col === e.col && x.row === e.row) < 0) ++addEnts;
+  pendingMerge = other;
+  $("mergeBody").innerHTML = `<table><tr><td>Нові клітинки</td><td><b>${addCells}</b></td></tr><tr><td>Спірні клітинки (обидва правили по-різному)</td><td><b>${conflictCells}</b></td></tr><tr><td>Нові правила плиток</td><td><b>${addRules}</b></td></tr><tr><td>Спірні правила</td><td><b>${conflictRules}</b></td></tr><tr><td>Нові правки спрайтів</td><td><b>${addEnts}</b></td></tr></table><p class="muted small">Нове додається завжди. Для спірного виберіть, чия версія залишиться.</p>`;
+  $("mergeDlg").showModal();
+}
+function finishMerge(theirs) {
+  const other = pendingMerge; if (!other) return;
+  if (S.room) beginChange();
+  for (const [k, oe] of other.rooms) {
+    const me = S.edits.room(oe.area, oe.room, true);
+    for (let L = 0; L < 2; ++L) for (let i = 0; i < SIDE * SIDE; ++i) {
+      if (!(oe.flags[L][i] & CELL_HAS)) continue;
+      if (!(me.flags[L][i] & CELL_HAS) || theirs) { me.flags[L][i] = oe.flags[L][i]; me.value[L][i] = oe.value[L][i]; }
+    }
+    S.dirtyRooms.add(k);
+  }
+  for (const [k, r] of other.rules) if (!S.edits.rules.has(k) || theirs) S.edits.rules.set(k, { ...r });
+  for (const e of other.entities) {
+    const i = S.edits.entities.findIndex(x => x.kind === e.kind && x.id === e.id && x.type === e.type && x.all === e.all && x.area === e.area && x.room === e.room && x.col === e.col && x.row === e.row);
+    if (i < 0) S.edits.entities.push({ ...e }); else if (theirs) S.edits.entities[i] = { ...e };
+  }
+  S.rulesDirty = S.entitiesDirty = true; pendingMerge = null; $("mergeDlg").close(); afterChange(); renderRoomTree(); toast("Об'єднано");
+}
+
+/* ===== The console's own picture (GET /frame) ===== */
+let liveBusy = false;
+async function liveTick() {
+  if (!$("liveOn").checked) return;
+  if (S.connected && !liveBusy && !document.hidden) {
+    liveBusy = true;
+    try {
+      const buf = await api("/frame", { binary: true, timeout: 5000 });
+      drawLive(buf); $("liveInfo").textContent = "";
+    } catch (e) { $("liveInfo").textContent = "немає кадру: " + e.message.replace(/^\d+ /, ""); }
+    liveBusy = false;
+  } else if (!S.connected) $("liveInfo").textContent = "немає зв'язку";
+  setTimeout(liveTick, 350);
+}
+function drawLive(buf) {
+  const dv = new DataView(buf), w = dv.getUint16(4, true), h = dv.getUint16(6, true);
+  const eye = n => { const img = new ImageData(w, h); for (let i = 0; i < w * h; ++i) { const p = dv.getUint16(8 + (n * w * h + i) * 2, true); img.data[i * 4] = ((p >> 11) & 31) << 3; img.data[i * 4 + 1] = ((p >> 6) & 31) << 3; img.data[i * 4 + 2] = ((p >> 1) & 31) << 3; img.data[i * 4 + 3] = 255; } return img; };
+  const mode = $("liveMode").value, scale = +$("liveScale").value, L = eye(0), R = eye(1);
+  const cv = $("liveCanvas"), g = cv.getContext("2d");
+  const tmp = document.createElement("canvas"); const t = tmp.getContext("2d");
+  if (mode === "ana") {
+    tmp.width = w; tmp.height = h; const A = new ImageData(w, h);
+    for (let i = 0; i < w * h * 4; i += 4) { A.data[i] = L.data[i] * .3 + L.data[i + 1] * .59 + L.data[i + 2] * .11; A.data[i + 1] = R.data[i + 1]; A.data[i + 2] = R.data[i + 2]; A.data[i + 3] = 255; }
+    t.putImageData(A, 0, 0);
+  } else if (mode === "left") { tmp.width = w; tmp.height = h; t.putImageData(L, 0, 0); }
+  else { tmp.width = w * 2 + 4; tmp.height = h; t.fillStyle = "#000"; t.fillRect(0, 0, tmp.width, h); const [a, b] = mode === "cross" ? [R, L] : [L, R]; t.putImageData(a, 0, 0); t.putImageData(b, w + 4, 0); }
+  cv.width = tmp.width * scale; cv.height = tmp.height * scale; g.imageSmoothingEnabled = false; g.drawImage(tmp, 0, 0, cv.width, cv.height);
+}
+
+/* ===== Wiring ===== */
+for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
+for (const b of document.querySelectorAll("[data-layer]")) b.onclick = () => setLayers(+b.dataset.layer);
+$("connectBtn").onclick = connect;
+$("addr").addEventListener("keydown", ev => { if (ev.key === "Enter") connect(); });
+$("upBtn").onclick = () => stepSel(1); $("downBtn").onclick = () => stepSel(-1);
+$("setBtn").onclick = () => setSelHeight(+$("setValue").value);
+$("levelBtn").onclick = levelSel; $("resetBtn").onclick = resetSel;
+$("clearSelBtn").onclick = () => { S.selection.fill(0); S.selCount = 0; S.selEntity = null; updateSelInfo(); renderEntities(); scheduleSelectPush(); draw(); };
+$("ruleSetBtn").onclick = () => ruleFromSel(true); $("ruleAddBtn").onclick = () => ruleFromSel(false); $("ruleDelBtn").onclick = ruleDelSel;
+$("entUp").onclick = () => stepEntity(1); $("entDown").onclick = () => stepEntity(-1); $("entReset").onclick = resetEntity;
+$("entAll").onchange = () => { if (S.selEntity) S.selEntity.all = $("entAll").checked; draw(); };
+$("undoBtn").onclick = undo; $("redoBtn").onclick = redo;
+$("saveBtn").onclick = saveOnConsole; $("downloadBtn").onclick = download;
+$("openBtn").onclick = () => pickFile("open"); $("mergeBtn").onclick = () => pickFile("merge");
+$("mergeMine").onclick = () => finishMerge(false); $("mergeTheirs").onclick = () => finishMerge(true);
+$("helpBtn").onclick = () => $("helpDlg").showModal();
+$("roomSearch").addEventListener("input", renderRoomTree);
+for (const id of ["showBottom", "showTop", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", draw);
+$("showAuto").addEventListener("change", () => { recompute(); updateSelInfo(); draw(); });
+$("liveOn").addEventListener("change", () => { $("live").classList.toggle("open", $("liveOn").checked); if ($("liveOn").checked) liveTick(); });
+window.addEventListener("resize", resize);
+setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */
+
+(async function init() {
+  setTool("rect"); setLayers(LAYER_BOTH); buildLegend(); resize();
+  $("addr").value = localStorage.getItem("tmc-addr") || "localhost";
+  await dbOpen();
+  for (const k of await dbKeys("rooms")) cachedRooms.add(k);
+  const saved = await dbGet("kv", "edits"); if (saved) S.edits.importText(saved, 7);
+  const dirty = await dbGet("kv", "dirty");
+  if (dirty) { try { const d = JSON.parse(dirty); d.rooms.forEach(k => S.dirtyRooms.add(k)); S.rulesDirty = d.rules; S.entitiesDirty = d.entities; } catch (e) {} }
+  const rooms = await dbGet("kv", "rooms"); if (rooms) { S.rooms = JSON.parse(rooms).map(x => Array.isArray(x) ? { area: x[0], room: x[1], mapX: x[2], mapY: x[3], w: x[4], h: x[5], tileset: x[6] } : x); buildRoomTree(); }
+  if (S.dirtyRooms.size || S.rulesDirty || S.entitiesDirty) $("pending").textContent = "є неперенесені на консоль зміни";
+  const params = new URLSearchParams(location.search);
+  if (params.get("addr")) { $("addr").value = params.get("addr"); }
+  if (params.has("connect")) await connect();
+  if (params.has("live")) { $("liveOn").checked = true; $("liveOn").dispatchEvent(new Event("change")); }
+  if (params.has("selftest")) selfTest();
+})();
+
+/* ?selftest: drives the editor against a connected console and reports in
+ * <pre id="selftest"> (read it with a headless browser's --dump-dom). */
+async function selfTest() {
+  const log = [], ok = (cond, what) => log.push((cond ? "PASS " : "FAIL ") + what);
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  try {
+    ok(S.connected && S.room, "connected, room loaded " + (S.room ? hex2(S.room.area) + ":" + hex2(S.room.room) : ""));
+    const a = S.room.area, r = S.room.room;
+    /* Clean slate for this room. */
+    S.edits.rooms.delete(roomKey(a, r)); S.dirtyRooms.add(roomKey(a, r)); await pushPending();
+    applySel(rectCells({ col: 5, row: 6 }, { col: 8, row: 7 }), "replace");
+    ok(S.selCount === 8, "rectangle selects 8 cells: " + S.selCount);
+    setLayers(LAYER_BOTTOM);
+    const before = S.heights.bottom[6 * SIDE + 5];
+    stepSel(1); stepSel(1);
+    ok(S.heights.bottom[6 * SIDE + 5] === before + 2, "+1 twice raises by 2");
+    await pushPending();
+    let text = await api(`/edits?kinds=1&area=${a}&room=${r}`);
+    ok(/cell [0-9a-f]+ [0-9a-f]+ b d 6 5 8 2/.test(text), "console holds the cells: " + text.split("\n")[1]);
+    setSelHeight(4); await pushPending();
+    text = await api(`/edits?kinds=1&area=${a}&room=${r}`);
+    ok(/b s 6 5 8 4/.test(text) && /b s 7 5 8 4/.test(text), "set height 4 replaces");
+    undo(); await pushPending();
+    ok(S.heights.bottom[6 * SIDE + 5] === before + 2, "undo restores +2");
+    redo(); ok(S.heights.bottom[6 * SIDE + 5] === 4, "redo sets 4 again");
+    resetSel(); await pushPending();
+    text = await api(`/edits?kinds=1&area=${a}&room=${r}`);
+    ok(!/cell/.test(text), "reset clears the room on the console");
+    /* Wand and same tile. */
+    const wand = wandCells({ col: 10, row: 10 });
+    ok(wand.length > 1, "wand finds " + wand.length + " connected cells");
+    const same = sameTileCells({ col: 10, row: 10 });
+    ok(same.length >= 1, "same tile finds " + same.length);
+    /* Tile rule. */
+    const rulesBefore = S.edits.rules.size;
+    applySel([10 * SIDE + 10], "replace"); $("setValue").value = 3; ruleFromSel(true); await pushPending();
+    const rtext = await api("/edits?kinds=2");
+    ok(S.edits.rules.size === rulesBefore + 1 && /tile b [0-9a-f]{8} \d s 3/.test(rtext), "rule reaches the console");
+    ok(S.heights.bottom[10 * SIDE + 10] === 3, "rule applies locally");
+    ruleDelSel(); await pushPending();
+    ok(S.edits.rules.size === rulesBefore, "rule removed");
+    /* Level. */
+    applySel(rectCells({ col: 0, row: 0 }, { col: 29, row: 19 }), "replace"); setLayers(LAYER_BOTH);
+    levelSel(); await pushPending();
+    let lo = 1e9, hi = -1e9; for (const i of selectedCells()) { lo = Math.min(lo, cellHeight(i)); hi = Math.max(hi, cellHeight(i)); }
+    ok(lo === hi, "level makes the room flat: " + lo + ".." + hi);
+    resetSel(); await pushPending();
+    /* Entities. */
+    const en = (S.room.entities || []).find(e => e.kind !== 9 && e.kind !== 1) || S.room.entities[0];
+    selectEntity(en); stepEntity(1); await pushPending();
+    const etext = await api("/edits?kinds=4");
+    ok(new RegExp(`ent ${hex2(en.kind)} ${hex2(en.id)} ${hex2(en.type)}`, "i").test(etext), "entity edit reaches the console");
+    resetEntity(); await pushPending();
+    /* Selection shows on the console. */
+    applySel(rectCells({ col: 2, row: 2 }, { col: 4, row: 3 }), "replace"); await wait(400);
+    ok(true, "selection sent (check the top screen)");
+    /* File round trip. */
+    const file = S.edits.fileText(); const copy = new Edits(); copy.importText(file, 7);
+    ok(copy.fileText() === file, "file text round-trips");
+    /* Anaglyph renders. */
+    $("preview3d").checked = true; draw(); $("preview3d").checked = false; draw();
+    ok(true, "anaglyph drew");
+  } catch (e) { log.push("FAIL exception " + e.message + " " + e.stack); }
+  const pre = document.createElement("pre"); pre.id = "selftest"; pre.textContent = log.join("\n"); document.body.append(pre);
+  document.title = "SELFTEST DONE";
+}
+</script>
+</body>
+</html>

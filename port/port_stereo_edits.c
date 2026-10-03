@@ -16,7 +16,8 @@
  * and s replaces it. A tile rule holds for every cell, in any room, whose
  * 16x16 map tile looks the same -- `hash` is PortStereoEdits_TileHash of its
  * graphics, `quarter` which 8x8 cell of it (0 top-left, 1 top-right, 2, 3) --
- * and room cells are applied over the rules. Area, room, kind, id and type are hex, as the developer
+ * and room cells are applied over the rules. The key leaves the pixels out:
+ * animated tiles (water, flowers) change them every few frames. Area, room, kind, id and type are hex, as the developer
  * overlay shows them; the rest decimal. The first editor build wrote
  * rectangles instead (`rect <area> <room> <layers> <col0> <row0> <col1> <row1>
  * <delta>`); those are still read, as additions.
@@ -393,16 +394,14 @@ void PortStereoEdits_Import(int kinds, int area, int room, const char* text, siz
     Changed();
 }
 
-u32 PortStereoEdits_TileHash(const u16* subTiles, const u8* charBlock) {
+u32 PortStereoEdits_TileHash(const u16* subTiles, u32 tilesetKey) {
     u32 hash = 2166136261u;
+    for (int i = 0; i < 4; ++i) {
+        hash = (hash ^ ((tilesetKey >> (8 * i)) & 0xff)) * 16777619u;
+    }
     for (int q = 0; q < 4; ++q) {
-        const u16 entry = subTiles[q];
-        const u8* pixels = charBlock + (((u32)(entry & 0x3ff) * 32u) & 0xffffu);
-        hash = (hash ^ (entry & 0xff)) * 16777619u;
-        hash = (hash ^ (entry >> 8)) * 16777619u;
-        for (int i = 0; i < 32; ++i) {
-            hash = (hash ^ pixels[i]) * 16777619u;
-        }
+        hash = (hash ^ (subTiles[q] & 0xff)) * 16777619u;
+        hash = (hash ^ (subTiles[q] >> 8)) * 16777619u;
     }
     return hash != 0 ? hash : 1;
 }

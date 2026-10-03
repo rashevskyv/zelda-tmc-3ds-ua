@@ -57,6 +57,13 @@ static float sEditorTexelX, sEditorTexelY;
 static uint32_t sEditorFrame;
 /* Blinks the PC editor's highlight on the top screen. */
 static unsigned sFrameCounterForBlink;
+/* The PC editor's copy of both eyes (GET /frame): asked for, queued as a
+ * transfer after a frame's draws, readable a couple of frames later. */
+static uint16_t* sEyeCopy[2];
+static bool sEyeCopyWanted, sEyeCopyQueued, sEyeCopyRight;
+static uint32_t sEyeCopyFrame;
+static float sEyeCopyX, sEyeCopyY;
+static unsigned sEyeCopyStride, sEyeCopyRows;
 static Tex3DS_SubTexture sSharpBilinearSubtexture;
 static Tex3DS_SubTexture sBottomSubtexture;
 static uint32_t* sTopUpload;
@@ -953,6 +960,24 @@ void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, 
     sEditorTexelX = sTopSubtexture.left * left->width;
     sEditorTexelY = (1.0f - sTopSubtexture.top) * left->height;
     sEditorFrame = sStats.frames;
+    if (sEyeCopyWanted) {
+        const size_t texels = (size_t)left->width * left->height;
+        for (int eye = 0; eye < 2; ++eye) {
+            if (!sEyeCopy[eye]) sEyeCopy[eye] = linearMemAlign(texels * sizeof(uint16_t), 0x80);
+        }
+        C3D_Tex* right = rightPointer ? (C3D_Tex*)rightPointer : NULL;
+        if (sEyeCopy[0] && sEyeCopy[1] && PlatformGpu3DS_QueueRgba5551Readback(left, sEyeCopy[0])) {
+            sEyeCopyRight = right && right->width == left->width && right->height == left->height &&
+                            PlatformGpu3DS_QueueRgba5551Readback(right, sEyeCopy[1]);
+            sEyeCopyX = sEditorTexelX;
+            sEyeCopyY = sEditorTexelY;
+            sEyeCopyStride = left->width;
+            sEyeCopyRows = left->height;
+            sEyeCopyFrame = sStats.frames;
+            sEyeCopyQueued = true;
+            sEyeCopyWanted = false;
+        }
+    }
     if (sStereoDepth > 0.0f) {
         sTopDraw = sTopTargetRight;
         DrawTopTexture(rightPointer ? (C3D_Tex*)rightPointer : left, width, false);
@@ -1132,8 +1157,19 @@ static void DrawStereoEditor(void) {
     }
 }
 
+/* The last painted bottom image, for GET /bottom of the PC editor's link. */
+static const uint32_t* sLastBottomPixels;
+
+bool PortStereoLink_BottomImage(const uint32_t** pixels, unsigned* pitch) {
+    if (!sLastBottomPixels) return false;
+    *pixels = sLastBottomPixels;
+    *pitch = sUploadLayout.bottomPitch;
+    return true;
+}
+
 bool PlatformGpu3DS_EndBottom(const uint32_t* pixels, bool changed) {
     if (!sFrameActive || !pixels) return false;
+    sLastBottomPixels = pixels;
     DrawUpdateTop();
     if (changed) {
         /* NOT a blocking transfer. citro3d source/renderqueue.c:417-430 shows
@@ -1312,4 +1348,25 @@ void PlatformGpu3DS_Shutdown(void) {
     sBottomTargetValid = false;
     sSharpBilinearTarget = NULL;
     sUploadLayout = (PlatformGpu3DSUploadLayout){ 0 };
+}
+
+/* GET /frame of the PC editor's link (port/port_stereo_link.h). */
+void PortStereoLink_FrameRequest(void) {
+    sEyeCopyWanted = true;
+    sEyeCopyQueued = false;
+}
+
+bool PortStereoLink_FrameReady(const uint16_t** left, const uint16_t** right, unsigned* stride, unsigned* x0,
+                               unsigned* y0) {
+    if (!sEyeCopyQueued || sStats.frames < sEyeCopyFrame + 2) return false;
+    const size_t bytes = (size_t)sEyeCopyStride * sEyeCopyRows * sizeof(uint16_t);
+    GSPGPU_InvalidateDataCache(sEyeCopy[0], bytes);
+    if (sEyeCopyRight) GSPGPU_InvalidateDataCache(sEyeCopy[1], bytes);
+    *left = sEyeCopy[0];
+    *right = sEyeCopyRight ? sEyeCopy[1] : sEyeCopy[0];
+    *stride = sEyeCopyStride;
+    *x0 = (unsigned)sEyeCopyX;
+    *y0 = (unsigned)sEyeCopyY;
+    sEyeCopyQueued = false;
+    return true;
 }

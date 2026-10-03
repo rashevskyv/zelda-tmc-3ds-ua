@@ -42,8 +42,10 @@ enum {
     PORT_STEREO_EDITOR_MAX_RECTS = 280,
     /* Cells a side of the colour layer: the view never shows more than 31x21. */
     PORT_STEREO_EDITOR_CELLS = 32,
-    /* The "?" button in the corner of the status line. */
+    /* The "?" button in the corner of the status line, the room list's
+     * button left of it. */
     PORT_STEREO_EDITOR_HELP_X0 = 284,
+    PORT_STEREO_EDITOR_ROOMS_X0 = 248,
     PORT_STEREO_EDITOR_HELP_Y0 = 202,
 };
 
@@ -81,6 +83,19 @@ bool PortStereoEditor_IsOpen(void);
 void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int touchX, int touchY, int padX,
                             int padY);
 
+/* The selection, shared with the PC editor: cells it selects become the
+ * editor's, and it reads the editor's back. Main thread. */
+void PortStereoEditor_ClearSelection(int area, int room);
+void PortStereoEditor_SelectRun(int area, int room, int row, int col0, int col1);
+unsigned PortStereoEditor_SelectionRevision(void);
+char* PortStereoEditor_SelectionText(size_t* length);
+
+/* The room list (the "≡" button): up to PORT_STEREO_EDITOR_LIST_ROWS lines
+ * to show in the picture's place, the highlighted one, and a title; 0 when
+ * the list is closed. Any thread. */
+enum { PORT_STEREO_EDITOR_LIST_ROWS = 10, PORT_STEREO_EDITOR_LIST_Y0 = 22, PORT_STEREO_EDITOR_LIST_ROW_H = 17 };
+int PortStereoEditor_ListLines(char (*lines)[48], int* cursor, char* title, size_t titleSize);
+
 /* What to draw over the bottom screen this frame. Main thread. */
 void PortStereoEditor_BuildView(PortStereoEditorView* view);
 
@@ -89,6 +104,7 @@ void PortStereoEditor_Status(char* line, size_t size);
 /* Whether the help is shown, and its lines; any thread. */
 bool PortStereoEditor_HelpOpen(void);
 void PortStereoEditor_ShowHelp(void);
+void PortStereoEditor_ShowRooms(void);
 const char* const* PortStereoEditor_HelpLines(int* count);
 
 #endif /* PORT_STEREO_EDITOR_H */

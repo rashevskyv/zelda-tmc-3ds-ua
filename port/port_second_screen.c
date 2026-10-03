@@ -2212,7 +2212,21 @@ static void PaintStereoEditor(const SSurf* s) {
     char line[160];
     PortStereoEditor_Status(line, sizeof(line));
     Port_SecondScreenTheme_DrawBackdrop(s->px, s->w, s->h, s->stride, 0, 0, s->w, s->h, 2);
-    if (PortStereoEditor_HelpOpen()) {
+    char list[PORT_STEREO_EDITOR_LIST_ROWS][48], title[48];
+    int cursor = 0;
+    const int listed = PortStereoEditor_ListLines(list, &cursor, title, sizeof(title));
+    if (listed > 0) {
+        UpdateBodyText(s, title, 6, 3, SS_TEXT_RED, true);
+        for (int i = 0; i < listed; ++i) {
+            const int y = PORT_STEREO_EDITOR_LIST_Y0 + i * PORT_STEREO_EDITOR_LIST_ROW_H;
+            if (i == cursor) {
+                /* ABGR: a pale blue bar under the highlighted line. */
+                FillRoundRect(s, 2, (float)y, (float)s->w - 2, (float)(y + PORT_STEREO_EDITOR_LIST_ROW_H), 4,
+                              0xfff0c896u);
+            }
+            UpdateBodyText(s, list[i], 8, y, SS_TEXT_INK, true);
+        }
+    } else if (PortStereoEditor_HelpOpen()) {
         int count;
         const char* const* help = PortStereoEditor_HelpLines(&count);
         for (int i = 0; i < count; ++i) {
@@ -2221,6 +2235,11 @@ static void PaintStereoEditor(const SSurf* s) {
     }
     UpdateBodyText(s, line, 6, PORT_STEREO_EDITOR_VIEW_H + 12, SS_TEXT_INK, true);
     const float u = (float)(s->w < s->h ? s->w : s->h) / 720.0f;
+    DrawMenuButton(s, PORT_STEREO_EDITOR_ROOMS_X0, PORT_STEREO_EDITOR_HELP_Y0, PORT_STEREO_EDITOR_HELP_X0 - 3,
+                   s->h - 3, "", listed > 0, 0, u, 2);
+    /* "К" for кімнати; the font has no list glyph and maps "=" to kana. */
+    UpdateBodyText(s, "К", (PORT_STEREO_EDITOR_ROOMS_X0 + PORT_STEREO_EDITOR_HELP_X0 - 3) / 2 - 4,
+                   (PORT_STEREO_EDITOR_HELP_Y0 + s->h - 3) / 2 - 9, SS_TEXT_NAVY, true);
     DrawMenuButton(s, PORT_STEREO_EDITOR_HELP_X0, PORT_STEREO_EDITOR_HELP_Y0, s->w - 3, s->h - 3, "",
                    PortStereoEditor_HelpOpen(), 0, u, 2);
     UpdateSmallText(s, "?", (PORT_STEREO_EDITOR_HELP_X0 + s->w - 3 - UpdateTextWidth("?")) / 2,

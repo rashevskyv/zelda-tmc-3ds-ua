@@ -12,6 +12,14 @@
  *   GET  /rooms                      every room of every area, as JSON
  *   GET  /room                       the current room, binary (see the editor)
  *   GET  /entities                   the current room's entities, as JSON
+ *   GET  /cell?col=&row=             a cell's heights as the relief uses them
+ *   GET  /selection                  the console's 3D editor selection
+ *                                    ("area room", then "row col0 col1")
+ *   GET  /bottom                     the bottom screen's panel image: "TMCB",
+ *                                    u16 320, u16 240, ABGR words
+ *   GET  /frame                      both eyes as the console draws them:
+ *                                    "TMCF", u16 240, u16 160, then left and
+ *                                    right, RGBA5551 rows
  *   GET  /edits?kinds=&area=&room=   corrections as text (kinds: 1 cells of
  *                                    that room, 2 tile rules, 4 entities)
  *   POST /edits?kinds=&area=&room=   replace those corrections by the body
@@ -38,9 +46,25 @@ bool PortStereoLink_Enabled(void);
 /* "OFF", "WAIT", "NO WI-FI" or the console's address; any thread. */
 void PortStereoLink_Label(char* out, size_t size);
 
+/* Sends Link to a room (x, y in it, -1 for its middle): 200, 404 for no such
+ * room, 409 when the game is not where a warp can start. Game thread. */
+int PortStereoLink_Goto(int area, int room, int x, int y, int layer);
+/* A room's size in pixels; false when there is no such room. */
+bool PortStereoLink_RoomSize(int area, int room, int* width, int* height);
+
 /* The cells the PC editor points at, as GBA screen rectangles {x, y, w, h};
  * returns how many. Main thread. */
 int PortStereoLink_Highlight(float (*rects)[4], int max);
+
+/* Platform: a copy of both eyes' game pictures, RGBA5551, asked for and
+ * picked up a few frames later; false until it is there (or without the
+ * PICA200 renderer). */
+void PortStereoLink_FrameRequest(void);
+bool PortStereoLink_FrameReady(const uint16_t** left, const uint16_t** right, unsigned* stride, unsigned* x0,
+                               unsigned* y0);
+
+/* Platform: the bottom screen's painted image, 320x240 ABGR words. */
+bool PortStereoLink_BottomImage(const uint32_t** pixels, unsigned* pitch);
 
 /* Platform: bring the network up (returns the address, host order) or down. */
 bool PortStereoLink_NetUp(uint32_t* address);

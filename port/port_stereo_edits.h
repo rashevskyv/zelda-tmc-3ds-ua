@@ -49,9 +49,9 @@ u32 PortStereoEdits_Revision(void);
 void PortStereoEdits_ApplyRoom(int area, int room, int cols, int rows, s8* height, s8* heightTop, s8* ground,
                                s8 unknownGround, const u32* tileHashBottom, const u32* tileHashTop);
 /* What a 16x16 map tile looks like, as the key of a tile rule: its four
- * screen entries and their 4bpp pixels in the background's char block
- * (64 KiB from its base, wrapping). Never 0. */
-u32 PortStereoEdits_TileHash(const u16* subTiles, const u8* charBlock);
+ * screen entries (tile numbers, palettes, flips) in the room's tile set,
+ * named by `tilesetKey` (PortStereoEdits_TilesetKey). Never 0. */
+u32 PortStereoEdits_TileHash(const u16* subTiles, u32 tilesetKey);
 
 /* The edits as text, as the file holds them, for the PC editor: `kinds` a
  * mask; cell lines of one room only when area >= 0. Returns a malloc'd

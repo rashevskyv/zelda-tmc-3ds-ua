@@ -28,6 +28,7 @@
 #include "port_stereo_link.h"
 #include "port_stereo.h"
 #include "port_stereo_edits.h"
+#include "port_stereo_editor.h"
 
 #include "global.h"
 #include "area.h"
@@ -72,6 +73,8 @@ typedef struct {
     char* response;
     size_t responseLength, responseSent;
     unsigned age;
+    /* Waiting for the renderer's copy of the eyes (GET /frame). */
+    unsigned frameWait;
 } Client;
 
 static volatile bool sEnabled;
@@ -220,6 +223,7 @@ static void Respond(Client* client, int status, const char* type, const void* bo
                            "Access-Control-Allow-Origin: *\r\n"
                            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
                            "Access-Control-Allow-Headers: Content-Type\r\n"
+                           "Access-Control-Allow-Private-Network: true\r\n"
                            "Cache-Control: no-store\r\n"
                            "Content-Type: %s\r\n"
                            "Content-Length: %u\r\n"
@@ -295,13 +299,14 @@ static void AnswerStatus(Client* client) {
     PutF(&b,
          "{\"inGame\":%s,\"live\":%s,\"area\":%u,\"room\":%u,\"width\":%u,\"height\":%u,"
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
-         "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u}",
+         "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
          (int)gPlayerEntity.base.x.HALF.HI - (int)gRoomControls.origin_x,
          (int)gPlayerEntity.base.y.HALF.HI - (int)gRoomControls.origin_y, header ? header->tileSet_id : 0u,
-         gRoomControls.scrollAction > 1 ? "true" : "false", (unsigned long)PortStereoEdits_Revision(), sFrame);
+         gRoomControls.scrollAction > 1 ? "true" : "false", (unsigned long)PortStereoEdits_Revision(), sFrame,
+         PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false");
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -457,27 +462,41 @@ static void AnswerEdits(Client* client, const char* query, bool post, const char
     free(text);
 }
 
-static void AnswerGoto(Client* client, const char* query) {
-    const int area = QueryInt(query, "area", -1), room = QueryInt(query, "room", -1);
+bool PortStereoLink_RoomSize(int area, int room, int* width, int* height) {
+    const RoomHeader* header = RoomHeaderOf(area, room);
+    if (header == NULL || header->pixel_width == 0 || header->pixel_height == 0) {
+        return false;
+    }
+    *width = header->pixel_width;
+    *height = header->pixel_height;
+    return true;
+}
+
+int PortStereoLink_Goto(int area, int room, int x, int y, int layer) {
     const RoomHeader* header = RoomHeaderOf(area, room);
     if (header == NULL) {
-        RespondText(client, 404, "no such room");
-        return;
+        return 404;
     }
     if (!InGame() || gRoomControls.scrollAction > 1 || gRoomTransition.transitioningOut) {
-        RespondText(client, 409, "busy");
-        return;
+        return 409;
     }
     Transition t = { 0 };
     t.warp_type = WARP_TYPE_AREA;
     t.area = (u8)area;
     t.room = (u8)room;
-    t.endX = (u16)QueryInt(query, "x", header->pixel_width / 2);
-    t.endY = (u16)QueryInt(query, "y", header->pixel_height / 2);
-    t.layer = (u8)QueryInt(query, "layer", 1);
+    t.endX = (u16)(x >= 0 ? x : header->pixel_width / 2);
+    t.endY = (u16)(y >= 0 ? y : header->pixel_height / 2);
+    t.layer = (u8)(layer > 0 ? layer : 1);
     gRoomTransition.stairs_idx = 0;
     DoExitTransition(&t);
-    RespondText(client, 200, "ok");
+    return 200;
+}
+
+static void AnswerGoto(Client* client, const char* query) {
+    const int status = PortStereoLink_Goto(QueryInt(query, "area", -1), QueryInt(query, "room", -1),
+                                           QueryInt(query, "x", -1), QueryInt(query, "y", -1),
+                                           QueryInt(query, "layer", 1));
+    RespondText(client, status, status == 200 ? "ok" : status == 404 ? "no such room" : "busy");
 }
 
 static void AnswerSelect(Client* client, const char* query, const char* body, size_t bodyLength) {
@@ -485,6 +504,9 @@ static void AnswerSelect(Client* client, const char* query, const char* body, si
     const int room = QueryInt(query, "room", gRoomControls.room);
     sHighlightCount = 0;
     sHighlightRoom = (area << 8) | room;
+    if (bodyLength == 0) {
+        PortStereoEditor_ClearSelection(area, room);
+    }
     const char* end = body + bodyLength;
     while (body < end && sHighlightCount < MAX_HIGHLIGHT) {
         char line[48];
@@ -495,6 +517,10 @@ static void AnswerSelect(Client* client, const char* query, const char* body, si
             line[n] = '\0';
             unsigned row, col0, col1;
             if (sscanf(line, "%u %u %u", &row, &col0, &col1) == 3 && row < SIDE && col0 <= col1 && col1 < SIDE) {
+                if (sHighlightCount == 0) {
+                    PortStereoEditor_ClearSelection(area, room);
+                }
+                PortStereoEditor_SelectRun(area, room, (int)row, (int)col0, (int)col1);
                 sHighlight[sHighlightCount].row = (u8)row;
                 sHighlight[sHighlightCount].col0 = (u8)col0;
                 sHighlight[sHighlightCount].col1 = (u8)col1;
@@ -551,6 +577,49 @@ static void Answer(Client* client) {
         AnswerRooms(client);
     } else if (strcmp(target, "/room") == 0) {
         AnswerRoom(client);
+    } else if (strcmp(target, "/cell") == 0) {
+        /* The heights the relief uses, corrections included, for checking. */
+        PortStereoRoomView view;
+        char text[160];
+        const int col = QueryInt(query, "col", 0), row = QueryInt(query, "row", 0);
+        if (InGame() && Port_Stereo_RoomView(&view) && col >= 0 && row >= 0 && col < view.cols && row < view.rows) {
+            const int at = row * view.cols + col;
+            snprintf(text, sizeof(text), "{\"bottom\":%d,\"top\":%d,\"ground\":%d,\"autoBottom\":%d,\"autoTop\":%d,\"kind\":%u}",
+                     view.height[at], view.heightTop[at], view.ground[at], view.autoHeight[at], view.autoHeightTop[at],
+                     view.kind[at]);
+            Respond(client, 200, "application/json", text, strlen(text));
+        } else {
+            RespondText(client, 404, "no such cell");
+        }
+    } else if (strcmp(target, "/selection") == 0) {
+        /* What the console's own 3D editor has selected: "area room" then
+         * "row col0 col1" lines. */
+        size_t length = 0;
+        char* text = PortStereoEditor_SelectionText(&length);
+        if (text != NULL) {
+            Respond(client, 200, "text/plain; charset=utf-8", text, length);
+            free(text);
+        } else {
+            RespondText(client, 200, "");
+        }
+    } else if (strcmp(target, "/bottom") == 0) {
+        const uint32_t* pixels;
+        unsigned pitch;
+        if (PortStereoLink_BottomImage(&pixels, &pitch)) {
+            Buffer b = { 0 };
+            Put(&b, "TMCB", 4);
+            PutU16(&b, 320);
+            PutU16(&b, 240);
+            for (unsigned y = 0; y < 240; ++y) {
+                Put(&b, pixels + (size_t)y * pitch, 320 * sizeof(uint32_t));
+            }
+            RespondBuffer(client, "application/octet-stream", &b);
+        } else {
+            RespondText(client, 409, "no bottom image yet");
+        }
+    } else if (strcmp(target, "/frame") == 0) {
+        PortStereoLink_FrameRequest();
+        client->frameWait = 1;
     } else if (strcmp(target, "/entities") == 0) {
         AnswerEntities(client);
     } else if (strcmp(target, "/edits") == 0) {
@@ -613,9 +682,34 @@ static void ServeClient(Client* client) {
         if (client->request == NULL || !RequestComplete(client)) {
             return;
         }
-        Answer(client);
+        if (!client->frameWait) {
+            Answer(client);
+        }
         if (client->socket < 0) {
             return;
+        }
+        if (client->frameWait) {
+            const uint16_t *left, *right;
+            unsigned stride, x0, y0;
+            if (PortStereoLink_FrameReady(&left, &right, &stride, &x0, &y0)) {
+                Buffer b = { 0 };
+                Put(&b, "TMCF", 4);
+                PutU16(&b, 240);
+                PutU16(&b, 160);
+                for (int eye = 0; eye < 2; ++eye) {
+                    const uint16_t* pixels = eye ? right : left;
+                    for (unsigned y = 0; y < 160; ++y) {
+                        Put(&b, pixels + (size_t)(y0 + y) * stride + x0, 240 * sizeof(uint16_t));
+                    }
+                }
+                client->frameWait = 0;
+                RespondBuffer(client, "application/octet-stream", &b);
+            } else if (++client->frameWait > 90) {
+                client->frameWait = 0;
+                RespondText(client, 409, "no picture (3D slider down or software renderer)");
+            } else {
+                return;
+            }
         }
     }
     size_t budget = SEND_PER_TICK;

@@ -26,7 +26,7 @@
 #include "room.h"
 #include "screen.h"
 #include "port_widescreen.h"
-#include "port_gba_mem.h"
+#include "area.h"
 
 #include <string.h>
 
@@ -142,37 +142,46 @@ static int MapBackground(const MapLayer* layer) {
     return -1;
 }
 
-/* The char block a map layer's background takes its tiles from: BGCNT bits
- * 2-3 in 16 KiB steps. */
-static const u8* LayerCharBlock(const MapLayer* layer) {
-    if (layer->bgSettings == NULL) {
-        return NULL;
+/* Names the room's tile set by where its graphics come from: the source
+ * offsets of its chain of map data definitions (12 bytes each, the high bit
+ * of src saying another follows). Rooms and areas that load the same
+ * graphics share the name, whichever room table they come from. */
+static u32 TilesetKey(void) {
+    const RoomResInfo* info = gArea.pCurrentRoomInfo;
+    const u8* chain = info != NULL ? (const u8*)info->tileSet : NULL;
+    u32 key = 2166136261u;
+    if (chain == NULL) {
+        return key;
     }
-    return gVram + ((layer->bgSettings->control >> 2) & 3) * 0x4000u;
+    for (int i = 0; i < 16; ++i) {
+        u32 src;
+        memcpy(&src, chain + 12 * i, sizeof(src));
+        for (int b = 0; b < 4; ++b) {
+            key = (key ^ ((src >> (8 * b)) & 0xff)) * 16777619u;
+        }
+        if ((src & 0x80000000u) == 0) {
+            break;
+        }
+    }
+    return key;
 }
 
-/* The graphics key of every map tile in the room, 0 for a layer that is not
+/* The rule key of every map tile in the room, 0 for a layer that is not
  * shown. Tiles repeat, so each tile index is hashed once. */
-static void HashTiles(const MapLayer* layer, u32* hashes) {
+static void HashTiles(const MapLayer* layer, u32 tilesetKey, u32* hashes) {
     static u32 sByIndex[TILESET_SIZE];
     static u8 sDone[TILESET_SIZE];
-    const u8* chars = LayerCharBlock(layer);
     memset(hashes, 0, sizeof(u32) * 64 * 64);
-    if (chars == NULL) {
+    if (layer->bgSettings == NULL) {
         return;
     }
     memset(sDone, 0, sizeof(sDone));
-    /* The char block wraps inside VRAM's 64 KiB of backgrounds. */
-    static u8 sChars[0x10000];
-    const size_t offset = (size_t)(chars - gVram);
-    memcpy(sChars, gVram + offset, 0x10000 - offset);
-    memcpy(sChars + (0x10000 - offset), gVram, offset);
     const int tilesW = (sCols + 1) / 2, tilesH = (sRows + 1) / 2;
     for (int ty = 0; ty < tilesH && ty < 64; ++ty) {
         for (int tx = 0; tx < tilesW && tx < 64; ++tx) {
             const u32 index = layer->mapData[tx | (ty << 6)] & (TILESET_SIZE - 1);
             if (!sDone[index]) {
-                sByIndex[index] = PortStereoEdits_TileHash(&layer->subTiles[index * 4], sChars);
+                sByIndex[index] = PortStereoEdits_TileHash(&layer->subTiles[index * 4], tilesetKey);
                 sDone[index] = 1;
             }
             hashes[tx | (ty << 6)] = sByIndex[index];
@@ -212,8 +221,9 @@ static void MeasureRoom(void) {
     memcpy(sAutoGround, sGround, cells);
     memcpy(sAutoHeight, sHeight, cells);
     memcpy(sAutoHeightTop, sHeightTop, cells);
-    HashTiles(&gMapBottom, sTileHash[0]);
-    HashTiles(&gMapTop, sTileHash[1]);
+    const u32 tilesetKey = TilesetKey();
+    HashTiles(&gMapBottom, tilesetKey, sTileHash[0]);
+    HashTiles(&gMapTop, tilesetKey, sTileHash[1]);
     sEditsRevision = PortStereoEdits_Revision();
     PortStereoEdits_ApplyRoom(gRoomControls.area, gRoomControls.room, sCols, sRows, sHeight, sHeightTop, sGround,
                               PORT_STEREO_RELIEF_UNKNOWN, sTileHash[0], sTileHash[1]);
