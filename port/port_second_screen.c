@@ -2204,13 +2204,25 @@ static int GetSettingState(int row, char* out, int outCap) {
 #include "port_stereo_editor.h"
 
 /* The 3D editor draws the picture over the top 200 rows itself; this is the
- * help line under it. */
+ * status line under it with the "?" button, or the help in the picture's
+ * place. */
 static void PaintStereoEditor(const SSurf* s) {
-    char line1[160], line2[160];
-    PortStereoEditor_Status(line1, line2, sizeof(line1));
+    char line[160];
+    PortStereoEditor_Status(line, sizeof(line));
     Port_SecondScreenTheme_DrawBackdrop(s->px, s->w, s->h, s->stride, 0, 0, s->w, s->h, 2);
-    UpdateBodyText(s, line1, 4, PORT_STEREO_EDITOR_VIEW_H + 2, SS_TEXT_INK, true);
-    UpdateBodyText(s, line2, 4, PORT_STEREO_EDITOR_VIEW_H + 20, SS_TEXT_NAVY, true);
+    if (PortStereoEditor_HelpOpen()) {
+        int count;
+        const char* const* help = PortStereoEditor_HelpLines(&count);
+        for (int i = 0; i < count; ++i) {
+            UpdateBodyText(s, help[i], 6, 4 + 18 * i, i == 0 ? SS_TEXT_RED : SS_TEXT_INK, true);
+        }
+    }
+    UpdateBodyText(s, line, 6, PORT_STEREO_EDITOR_VIEW_H + 12, SS_TEXT_INK, true);
+    const float u = (float)(s->w < s->h ? s->w : s->h) / 720.0f;
+    DrawMenuButton(s, PORT_STEREO_EDITOR_HELP_X0, PORT_STEREO_EDITOR_HELP_Y0, s->w - 3, s->h - 3, "",
+                   PortStereoEditor_HelpOpen(), 0, u, 2);
+    UpdateSmallText(s, "?", (PORT_STEREO_EDITOR_HELP_X0 + s->w - 3 - UpdateTextWidth("?")) / 2,
+                    (PORT_STEREO_EDITOR_HELP_Y0 + s->h - 3) / 2 - 8, SS_TEXT_NAVY);
 }
 #endif
 

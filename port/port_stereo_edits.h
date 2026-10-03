@@ -49,11 +49,15 @@ void PortStereoEdits_ApplyRoom(int area, int room, int cols, int rows, s8* heigh
 /* Which of the asked layers of a cell carry an edit (PORT_STEREO_EDIT_*). */
 int PortStereoEdits_CellEdited(int area, int room, int col, int row, int layers);
 
-/* On the asked layers of a rectangle of cells: raise by `step` units, drop
- * the edits, or replace the height by `height`. */
-void PortStereoEdits_Step(int area, int room, int layers, int col0, int row0, int col1, int row1, int step);
-void PortStereoEdits_Reset(int area, int room, int layers, int col0, int row0, int col1, int row1);
-void PortStereoEdits_Set(int area, int room, int layers, int col0, int row0, int col1, int row1, int height);
+/* A selection of a room's cells: one byte per cell, PORT_STEREO_EDIT_SIDE a
+ * row, non-zero where selected. */
+enum { PORT_STEREO_EDIT_SIDE = 128 };
+
+/* On the asked layers of the selected cells: raise by `step` units, drop the
+ * edits, or replace the height by `height`. */
+void PortStereoEdits_Step(int area, int room, int layers, const u8* selection, int step);
+void PortStereoEdits_Reset(int area, int room, int layers, const u8* selection);
+void PortStereoEdits_Set(int area, int room, int layers, const u8* selection, int height);
 
 /* The correction for an entity standing at room cell (col, row). */
 int PortStereoEdits_EntityDelta(int area, int room, u8 kind, u8 id, u8 type, int col, int row);

@@ -2,7 +2,7 @@
  * that room once he can move, so a test run (an emulator driven by a script,
  * say) can look at any room without playing to it. It takes the engine's own
  * exit path -- the one area exits and the PC port's debug menu use -- so the
- * room loads as it would in play. `debug_stereo_editor=1` opens the 3D
+ * room loads as it would in play. `debug_stereo_editor=1` (2: with its help) opens the 3D
  * editor once he has been able to move for five seconds with no key held (an
  * emulator cannot tap the bottom screen, and a script mashing through the
  * intro would close it). There is no UI for either and neither is written back to the ini. */
@@ -17,7 +17,7 @@
 #include "port_stereo_editor.h"
 
 extern bool Port_Config_3DSDebugWarp(unsigned out[5]);
-extern bool Port_Config_3DSDebugStereoEditor(void);
+extern int Port_Config_3DSDebugStereoEditor(void);
 
 static void DebugStereoEditorTick(void) {
     static bool done;
@@ -32,6 +32,9 @@ static void DebugStereoEditorTick(void) {
     if (++settled >= 300) {
         done = true;
         PortStereoEditor_Open();
+        if (Port_Config_3DSDebugStereoEditor() == 2) {
+            PortStereoEditor_ShowHelp();
+        }
     }
 }
 

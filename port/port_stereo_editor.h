@@ -10,7 +10,7 @@
  * Corrections go to port_stereo_edits.c, which saves them on closing.
  *
  * Platform code feeds input, draws the view this file describes, and paints
- * the help line from PortStereoEditor_Status.
+ * the status line and the help from PortStereoEditor_Status / _HelpLines.
  */
 #ifndef PORT_STEREO_EDITOR_H
 #define PORT_STEREO_EDITOR_H
@@ -42,6 +42,9 @@ enum {
     PORT_STEREO_EDITOR_MAX_RECTS = 280,
     /* Cells a side of the colour layer: the view never shows more than 31x21. */
     PORT_STEREO_EDITOR_CELLS = 32,
+    /* The "?" button in the corner of the status line. */
+    PORT_STEREO_EDITOR_HELP_X0 = 284,
+    PORT_STEREO_EDITOR_HELP_Y0 = 202,
 };
 
 typedef struct PortStereoEditorRect {
@@ -50,6 +53,8 @@ typedef struct PortStereoEditorRect {
 } PortStereoEditorRect;
 
 typedef struct PortStereoEditorView {
+    /* The help is up: the panel paints it where the picture goes. */
+    bool hidden;
     /* The game picture: a GBA-pixel rectangle of the 240x160 frame and where
      * on the bottom screen it goes. */
     bool image;
@@ -62,6 +67,7 @@ typedef struct PortStereoEditorView {
     float cellsX, cellsY;
     uint32_t cellColour[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     bool cellEdited[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
+    bool cellSelected[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     int rectCount;
     PortStereoEditorRect rects[PORT_STEREO_EDITOR_MAX_RECTS];
 } PortStereoEditorView;
@@ -78,7 +84,11 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
 /* What to draw over the bottom screen this frame. Main thread. */
 void PortStereoEditor_BuildView(PortStereoEditorView* view);
 
-/* The two help lines, UTF-8; any thread. */
-void PortStereoEditor_Status(char* line1, char* line2, size_t size);
+/* The status line (room, selection, height), UTF-8; any thread. */
+void PortStereoEditor_Status(char* line, size_t size);
+/* Whether the help is shown, and its lines; any thread. */
+bool PortStereoEditor_HelpOpen(void);
+void PortStereoEditor_ShowHelp(void);
+const char* const* PortStereoEditor_HelpLines(int* count);
 
 #endif /* PORT_STEREO_EDITOR_H */

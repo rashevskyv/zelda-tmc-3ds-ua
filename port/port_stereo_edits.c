@@ -26,7 +26,7 @@
 #define STEREO_EDITS_FILE "stereo_edits.txt"
 
 enum {
-    SIDE = 128,
+    SIDE = PORT_STEREO_EDIT_SIDE,
     MAX_ROOMS = 96,
     MAX_ENTITIES = 256,
     ENTITY_REACH = 2,
@@ -270,42 +270,57 @@ int PortStereoEdits_CellEdited(int area, int room, int col, int row, int layers)
     return edited;
 }
 
-void PortStereoEdits_Step(int area, int room, int layers, int col0, int row0, int col1, int row1, int step) {
+void PortStereoEdits_Step(int area, int room, int layers, const u8* selection, int step) {
     PortStereoEdits_Load();
     RoomEdits* edits = FindRoom(area, room, TRUE);
-    if (edits != NULL && step != 0 && ClipRect(&col0, &row0, &col1, &row1)) {
-        StepCells(edits, layers, col0, row0, col1, row1, step);
-        Changed();
-    }
-}
-
-void PortStereoEdits_Reset(int area, int room, int layers, int col0, int row0, int col1, int row1) {
-    PortStereoEdits_Load();
-    RoomEdits* edits = FindRoom(area, room, FALSE);
-    if (edits == NULL || !ClipRect(&col0, &row0, &col1, &row1)) {
+    if (edits == NULL || step == 0) {
         return;
     }
-    for (int layer = 0; layer < 2; ++layer) {
-        if (layers & (1 << layer)) {
-            for (int row = row0; row <= row1; ++row) {
-                memset(&edits->flags[layer][row * SIDE + col0], 0, (size_t)(col1 - col0 + 1));
-                memset(&edits->value[layer][row * SIDE + col0], 0, (size_t)(col1 - col0 + 1));
+    for (int row = 0; row < SIDE; ++row) {
+        for (int col = 0; col < SIDE; ++col) {
+            if (selection[row * SIDE + col]) {
+                StepCells(edits, layers, col, row, col, row, step);
             }
         }
     }
     Changed();
 }
 
-void PortStereoEdits_Set(int area, int room, int layers, int col0, int row0, int col1, int row1, int height) {
+void PortStereoEdits_Reset(int area, int room, int layers, const u8* selection) {
     PortStereoEdits_Load();
-    RoomEdits* edits = FindRoom(area, room, TRUE);
-    if (edits == NULL || !ClipRect(&col0, &row0, &col1, &row1)) {
+    RoomEdits* edits = FindRoom(area, room, FALSE);
+    if (edits == NULL) {
         return;
     }
     for (int layer = 0; layer < 2; ++layer) {
-        if (layers & (1 << layer)) {
-            for (int row = row0; row <= row1; ++row) {
-                SetCells(edits, layer, row, col0, col1, TRUE, Clamp(height, -HEIGHT_LIMIT, HEIGHT_LIMIT));
+        if (!(layers & (1 << layer))) {
+            continue;
+        }
+        for (int cell = 0; cell < SIDE * SIDE; ++cell) {
+            if (selection[cell]) {
+                edits->flags[layer][cell] = 0;
+                edits->value[layer][cell] = 0;
+            }
+        }
+    }
+    Changed();
+}
+
+void PortStereoEdits_Set(int area, int room, int layers, const u8* selection, int height) {
+    PortStereoEdits_Load();
+    RoomEdits* edits = FindRoom(area, room, TRUE);
+    if (edits == NULL) {
+        return;
+    }
+    for (int layer = 0; layer < 2; ++layer) {
+        if (!(layers & (1 << layer))) {
+            continue;
+        }
+        for (int row = 0; row < SIDE; ++row) {
+            for (int col = 0; col < SIDE; ++col) {
+                if (selection[row * SIDE + col]) {
+                    SetCells(edits, layer, row, col, col, TRUE, Clamp(height, -HEIGHT_LIMIT, HEIGHT_LIMIT));
+                }
             }
         }
     }

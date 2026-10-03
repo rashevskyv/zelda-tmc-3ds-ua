@@ -1041,7 +1041,19 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
         for (unsigned x = 0; x < EDITOR_CELLS_SIDE; ++x) {
             const unsigned at = (y / EDITOR_CELL_TEXELS) * PORT_STEREO_EDITOR_CELLS + x / EDITOR_CELL_TEXELS;
             u32 abgr = view->cellColour[at];
-            if (view->cellEdited[at] && y % EDITOR_CELL_TEXELS == 0) abgr = C2D_Color32(255, 255, 255, 230);
+            if (view->cellEdited[at] && y % EDITOR_CELL_TEXELS == 1) abgr = C2D_Color32(255, 255, 255, 230);
+            if (view->cellSelected[at]) {
+                /* The selection's outline: the edge texels of a selected cell
+                 * that borders one that is not. */
+                const unsigned cx = x / EDITOR_CELL_TEXELS, cy = y / EDITOR_CELL_TEXELS;
+                const unsigned fx = x % EDITOR_CELL_TEXELS, fy = y % EDITOR_CELL_TEXELS;
+                const unsigned n = PORT_STEREO_EDITOR_CELLS, last = EDITOR_CELL_TEXELS - 1;
+                const bool edge = (fx == 0 && (cx == 0 || !view->cellSelected[at - 1])) ||
+                                  (fx == last && (cx + 1 == n || !view->cellSelected[at + 1])) ||
+                                  (fy == 0 && (cy == 0 || !view->cellSelected[at - n])) ||
+                                  (fy == last && (cy + 1 == n || !view->cellSelected[at + n]));
+                if (edge) abgr = C2D_Color32(255, 230, 40, 255);
+            }
             /* C2D colours are ABGR in a word; an RGBA8 texel is RGBA from the top byte. */
             texels[TiledTexel(x, y, EDITOR_CELLS_SIDE)] = __builtin_bswap32(abgr);
         }
@@ -1069,6 +1081,7 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
 static void DrawStereoEditor(void) {
     static PortStereoEditorView view;
     PortStereoEditor_BuildView(&view);
+    if (view.hidden) return; /* the help, in the painted image */
     C2D_Flush(); /* the bottom image goes with its own texture setup */
     C2D_Prepare();
     C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
