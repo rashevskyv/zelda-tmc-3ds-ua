@@ -6,7 +6,7 @@
  * one shows the same picture, flat, with the room's 8x8 cells -- the pieces
  * the relief is raised in -- and a line of help. Drag with the stylus to
  * select a rectangle of cells, tap to pick a sprite; the D-pad raises or
- * lowers what is selected. The game keeps running but gets no input.
+ * lowers what is selected. The game keeps running with only the Circle Pad.
  * Corrections go to port_stereo_edits.c, which saves them on closing.
  *
  * Platform code feeds input, draws the view this file describes, and paints
@@ -31,6 +31,7 @@ enum {
     PORT_STEREO_EDITOR_L = 1 << 8,
     PORT_STEREO_EDITOR_R = 1 << 9,
     PORT_STEREO_EDITOR_START = 1 << 10,
+    PORT_STEREO_EDITOR_SELECT = 1 << 11,
 };
 
 /* The part of the bottom screen the picture takes; the help line is below. */
@@ -39,6 +40,8 @@ enum {
     PORT_STEREO_EDITOR_VIEW_H = 200,
     /* citro2d draws at most 320 objects a frame, both screens together. */
     PORT_STEREO_EDITOR_MAX_RECTS = 280,
+    /* Cells a side of the colour layer: the view never shows more than 31x21. */
+    PORT_STEREO_EDITOR_CELLS = 32,
 };
 
 typedef struct PortStereoEditorRect {
@@ -52,6 +55,13 @@ typedef struct PortStereoEditorView {
     bool image;
     float srcX, srcY, srcW, srcH;
     float dstX, dstY, dstW, dstH;
+    /* A colour per cell (0 for none), and which cells carry an edit, from the
+     * cell whose top-left is at GBA pixel (cellsX, cellsY); drawn over the
+     * picture, under the rectangles. */
+    bool cells;
+    float cellsX, cellsY;
+    uint32_t cellColour[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
+    bool cellEdited[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     int rectCount;
     PortStereoEditorRect rects[PORT_STEREO_EDITOR_MAX_RECTS];
 } PortStereoEditorView;
@@ -60,7 +70,8 @@ void PortStereoEditor_Open(void);
 bool PortStereoEditor_IsOpen(void);
 
 /* One frame of input while open: buttons newly pressed and held, the stylus
- * (bottom-screen pixels) and the Circle Pad (-156..156). Main thread. */
+ * (bottom-screen pixels) and the stick that scrolls a zoomed view (the C-stick,
+ * -156..156; the Circle Pad stays with the game). Main thread. */
 void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int touchX, int touchY, int padX,
                             int padY);
 

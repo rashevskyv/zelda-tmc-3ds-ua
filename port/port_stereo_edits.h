@@ -4,15 +4,16 @@
  *
  * The relief is read off the game's collision and tile behaviour, and that is
  * wrong in places. These corrections are made in the 3D editor (developer
- * tools) and kept in stereo_edits.txt next to the ROM, in depth units added to
- * what the measurement says:
+ * tools) and kept in stereo_edits.txt next to the ROM:
  *
- * - a rectangle of a room's 8x8 cells, raised or lowered on the bottom map
- *   layer, the top one or both; what stands on it rises with it;
- * - an entity -- one in a given room, near where it was picked, or every
- *   entity of its kind, id and type -- brought nearer or pushed back.
+ * - per 8x8 cell of a room and per map layer (bottom, top), either a number
+ *   of depth units added to what the measurement says or a height that
+ *   replaces it; what stands on a raised cell rises with it;
+ * - per entity -- one in a given room, near where it was picked, or every
+ *   entity of its kind, id and type -- units to bring it nearer.
  *
- * Positive is nearer the viewer.
+ * Heights are depth units above the room's reference ground; positive is
+ * nearer the viewer.
  */
 #ifndef PORT_STEREO_EDITS_H
 #define PORT_STEREO_EDITS_H
@@ -41,18 +42,18 @@ bool32 PortStereoEdits_Save(void);
 /* Changes with every edit, so a measured room knows it is stale. */
 u32 PortStereoEdits_Revision(void);
 
-/* Adds the room's rectangles to its measured grids (cols x rows, row-major);
- * ground cells marked `unknownGround` are left alone. */
+/* Applies the room's cell edits to its measured grids (cols x rows,
+ * row-major). A replaced bottom height is ground from then on. */
 void PortStereoEdits_ApplyRoom(int area, int room, int cols, int rows, s8* height, s8* heightTop, s8* ground,
                                s8 unknownGround);
-/* The sum of the room's rectangles over one cell, for the layers asked. */
-int PortStereoEdits_CellDelta(int area, int room, int col, int row, int layers);
+/* Which of the asked layers of a cell carry an edit (PORT_STEREO_EDIT_*). */
+int PortStereoEdits_CellEdited(int area, int room, int col, int row, int layers);
 
-/* The rectangle exactly as given: its delta, or 0. */
-int PortStereoEdits_RectDelta(int area, int room, int layers, int col0, int row0, int col1, int row1);
-/* Adds `step` to that rectangle (0 clears it) and returns its new delta. */
-int PortStereoEdits_AdjustRect(int area, int room, int layers, int col0, int row0, int col1, int row1, int step,
-                               bool32 clear);
+/* On the asked layers of a rectangle of cells: raise by `step` units, drop
+ * the edits, or replace the height by `height`. */
+void PortStereoEdits_Step(int area, int room, int layers, int col0, int row0, int col1, int row1, int step);
+void PortStereoEdits_Reset(int area, int room, int layers, int col0, int row0, int col1, int row1);
+void PortStereoEdits_Set(int area, int room, int layers, int col0, int row0, int col1, int row1, int height);
 
 /* The correction for an entity standing at room cell (col, row). */
 int PortStereoEdits_EntityDelta(int area, int room, u8 kind, u8 id, u8 type, int col, int row);

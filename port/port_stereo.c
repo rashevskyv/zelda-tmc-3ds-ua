@@ -329,3 +329,13 @@ void Port_Stereo_CommitRelief(void) {
 bool32 Port_Stereo_ReliefLive(void) {
     return sLive;
 }
+
+bool32 Port_Stereo_CellHeights(int col, int row, int* bottom, int* top) {
+    if (sArea != gRoomControls.area || sRoom != gRoomControls.room || col < 0 || row < 0 || col >= sCols ||
+        row >= sRows) {
+        return FALSE;
+    }
+    *bottom = sHeight[row * sCols + col];
+    *top = sHeightTop[row * sCols + col];
+    return TRUE;
+}

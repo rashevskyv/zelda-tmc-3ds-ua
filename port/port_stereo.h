@@ -58,5 +58,8 @@ extern int gPortStereoReliefSink;
 void Port_Stereo_CommitRelief(void);
 /* Whether this frame's relief is drawn (3D slider up, relief on, in a room). */
 bool32 Port_Stereo_ReliefLive(void);
+/* A cell of the current room as measured and edited, in units above the
+ * reference ground, per map layer; false when the room is not measured. */
+bool32 Port_Stereo_CellHeights(int col, int row, int* bottom, int* top);
 
 #endif /* PORT_STEREO_H */

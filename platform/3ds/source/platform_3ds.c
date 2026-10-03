@@ -626,15 +626,15 @@ static void PollInput(void) {
     }
     hidCircleRead(&sCirclePosition);
     if (PortStereoEditor_IsOpen()) {
-        /* The 3D editor takes every key, the stylus and the Circle Pad; the
-         * game goes on without input. */
+        /* The 3D editor takes the buttons, the stylus and the C-stick; the
+         * game keeps the Circle Pad, so Link can walk to the next spot. */
         static const struct { u32 key, editor; } kKeys[] = {
             { KEY_DUP, PORT_STEREO_EDITOR_UP },       { KEY_DDOWN, PORT_STEREO_EDITOR_DOWN },
             { KEY_DLEFT, PORT_STEREO_EDITOR_LEFT },   { KEY_DRIGHT, PORT_STEREO_EDITOR_RIGHT },
             { KEY_A, PORT_STEREO_EDITOR_A },          { KEY_B, PORT_STEREO_EDITOR_B },
             { KEY_X, PORT_STEREO_EDITOR_X },          { KEY_Y, PORT_STEREO_EDITOR_Y },
             { KEY_L, PORT_STEREO_EDITOR_L },          { KEY_R, PORT_STEREO_EDITOR_R },
-            { KEY_START, PORT_STEREO_EDITOR_START },
+            { KEY_START, PORT_STEREO_EDITOR_START },  { KEY_SELECT, PORT_STEREO_EDITOR_SELECT },
         };
         u32 down = 0, held = 0;
         for (size_t i = 0; i < sizeof(kKeys) / sizeof(kKeys[0]); ++i) {
@@ -644,9 +644,13 @@ static void PollInput(void) {
         touchPosition touch = { 0, 0 };
         const bool touching = (sHeld & KEY_TOUCH) != 0;
         if (touching) hidTouchRead(&touch);
-        PortStereoEditor_Input(down, held, touching, touch.px, touch.py, sCirclePosition.dx, sCirclePosition.dy);
-        sHeld = sDown = 0;
-        memset(&sCirclePosition, 0, sizeof(sCirclePosition));
+        circlePosition cstick = { 0, 0 };
+        if (sIsNew3DS) hidCstickRead(&cstick);
+        PortStereoEditor_Input(down, held, touching, touch.px, touch.py, cstick.dx, cstick.dy);
+        /* Only the Circle Pad still walks Link. */
+        const u32 pad = KEY_CPAD_UP | KEY_CPAD_DOWN | KEY_CPAD_LEFT | KEY_CPAD_RIGHT;
+        sHeld &= pad;
+        sDown &= pad;
         memset(&sCStickPosition, 0, sizeof(sCStickPosition));
         sCStickHeld = false;
         sQuickDumpComboWasHeld = false;

@@ -38,6 +38,12 @@ static bool sTouching, sMoved;
 static bool sWaitRelease;
 static int sTouchX0, sTouchY0;
 static unsigned sRepeat;
+/* Colour the cells by how high they stand (SELECT turns it off). */
+static bool sHeatmap = true;
+/* A second tap on the same sprite soon after the first picks all its kind. */
+static unsigned sFrame, sTapFrame;
+static const Entity* sTapEntity;
+enum { DOUBLE_TAP_FRAMES = 30 };
 static bool sSaveFailed;
 
 static char sLines[2][2][LINE_SIZE];
@@ -168,6 +174,33 @@ static const char* LayerName(int layers) {
     return layers == PORT_STEREO_EDIT_BOTTOM ? "нижній шар" : layers == PORT_STEREO_EDIT_TOP ? "верхній шар" : "обидва шари";
 }
 
+/* The height a cell shows for the layers being edited. */
+static bool CellHeight(int col, int row, int layers, int* height) {
+    int bottom, top;
+    if (!Port_Stereo_CellHeights(col, row, &bottom, &top)) {
+        return false;
+    }
+    *height = layers == PORT_STEREO_EDIT_BOTTOM ? bottom : layers == PORT_STEREO_EDIT_TOP ? top
+                                                                                          : (bottom > top ? bottom : top);
+    return true;
+}
+
+/* The lowest and highest the selection stands, for the layers being edited. */
+static bool SelectionRange(int layers, int* lo, int* hi) {
+    bool any = false;
+    for (int row = sRow0; row <= sRow1; ++row) {
+        for (int col = sCol0; col <= sCol1; ++col) {
+            int h;
+            if (CellHeight(col, row, layers, &h)) {
+                *lo = any && *lo < h ? *lo : h;
+                *hi = any && *hi > h ? *hi : h;
+                any = true;
+            }
+        }
+    }
+    return any;
+}
+
 static void PublishStatus(void) {
     const int next = !sLineBuffer;
     char* line1 = sLines[next][0];
@@ -177,9 +210,15 @@ static void PublishStatus(void) {
     } else if (!Port_Stereo_ReliefLive()) {
         snprintf(line1, LINE_SIZE, "Підніми повзунок 3D; РЕЛЬЄФ 3D увімкнено");
     } else if (sSel == SEL_RECT) {
-        snprintf(line1, LINE_SIZE, "%02X:%02X  %d,%d-%d,%d  %s  %+d", sArea, sRoom, sCol0, sRow0, sCol1, sRow1,
-                 LayerName(sLayers),
-                 PortStereoEdits_RectDelta(sArea, sRoom, sLayers, sCol0, sRow0, sCol1, sRow1));
+        int lo = 0, hi = 0;
+        SelectionRange(sLayers, &lo, &hi);
+        if (lo == hi) {
+            snprintf(line1, LINE_SIZE, "%02X:%02X  %d,%d-%d,%d  %s  висота %d", sArea, sRoom, sCol0, sRow0, sCol1,
+                     sRow1, LayerName(sLayers), lo);
+        } else {
+            snprintf(line1, LINE_SIZE, "%02X:%02X  %d,%d-%d,%d  %s  висота %d..%d", sArea, sRoom, sCol0, sRow0,
+                     sCol1, sRow1, LayerName(sLayers), lo, hi);
+        }
     } else if (sSel == SEL_ENTITY) {
         snprintf(line1, LINE_SIZE, "Об'єкт %02X %02X %02X  %s  %+d", sKey.kind, sKey.id, sKey.type,
                  sKey.all ? "усі такі" : "цей", PortStereoEdits_KeyDelta(&sKey));
@@ -188,8 +227,11 @@ static void PublishStatus(void) {
                  gRoomControls.room);
     }
     snprintf(line2, LINE_SIZE, "%s",
-             sSaveFailed ? "Не вдалося зберегти stereo_edits.txt"
-                         : "Хрест висота, шар  L R зум  Y усі  X скинути  B вихід");
+             sSaveFailed       ? "Не вдалося зберегти stereo_edits.txt"
+             : sSel == SEL_RECT ? "Хрест-висота/шар  A-рівно  X-скинути  L/R-зум  B-вихід"
+             : sSel == SEL_ENTITY
+                 ? "Хрест-ближче/далі  2 дотики чи Y-усі  X-скинути  B-вихід"
+                 : "Тягни чи торкнись  L/R-зум  Select-кольори  B-вихід");
     sLineBuffer = next;
 }
 
@@ -209,10 +251,15 @@ bool PortStereoEditor_IsOpen(void) {
     return sOpen;
 }
 
+/* Zooms about the selection, or the middle of the view. */
 static void ZoomTo(int zoom) {
     const float s = Scale();
-    const float cx = sPanX + PORT_STEREO_EDITOR_VIEW_W / s / 2.0f;
-    const float cy = sPanY + PORT_STEREO_EDITOR_VIEW_H / s / 2.0f;
+    float cx = sPanX + PORT_STEREO_EDITOR_VIEW_W / s / 2.0f;
+    float cy = sPanY + PORT_STEREO_EDITOR_VIEW_H / s / 2.0f;
+    if (sSel == SEL_RECT) {
+        cx = (float)(RoomScreenX() + (sCol0 + sCol1 + 1) * 4);
+        cy = (float)(RoomScreenY() + (sRow0 + sRow1 + 1) * 4);
+    }
     sZoom = zoom < 1 ? 1 : zoom > MAX_ZOOM ? MAX_ZOOM : zoom;
     sPanX = cx - PORT_STEREO_EDITOR_VIEW_W / Scale() / 2.0f;
     sPanY = cy - PORT_STEREO_EDITOR_VIEW_H / Scale() / 2.0f;
@@ -237,12 +284,13 @@ static void SelectTap(void) {
     ForEachEntity(PickVisit, &pick);
     if (pick.found != NULL) {
         const Entity* e = pick.found;
-        const bool all = sSel == SEL_ENTITY && sKey.all;
+        const bool again = sSel == SEL_ENTITY && e == sTapEntity && sFrame - sTapFrame <= DOUBLE_TAP_FRAMES;
         sKey = (PortStereoEntityKey){ e->kind, e->id, e->type, FALSE, gRoomControls.area, gRoomControls.room,
                                       (u8)Max(0, EntityCol(e)), (u8)Max(0, EntityRow(e)) };
-        /* Picking another of the same kind keeps "all of them". */
-        sKey.all = all;
+        sKey.all = again;
         sSel = SEL_ENTITY;
+        sTapEntity = e;
+        sTapFrame = sFrame;
         return;
     }
     SelectDrag(sTouchX0, sTouchY0);
@@ -264,7 +312,11 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
         PublishStatus();
         return;
     }
+    ++sFrame;
     const bool live = InGame();
+    if (down & PORT_STEREO_EDITOR_SELECT) {
+        sHeatmap = !sHeatmap;
+    }
     if (sSel != SEL_NONE && sSel != SEL_ENTITY && (sArea != gRoomControls.area || sRoom != gRoomControls.room)) {
         sSel = SEL_NONE;
     }
@@ -325,18 +377,43 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
         step = (vertical & PORT_STEREO_EDITOR_UP) ? 1 : -1;
     }
     const bool clear = (down & PORT_STEREO_EDITOR_X) != 0;
-    if (live && (step != 0 || clear)) {
-        if (sSel == SEL_RECT) {
-            PortStereoEdits_AdjustRect(sArea, sRoom, sLayers, sCol0, sRow0, sCol1, sRow1, step, clear);
-        } else if (sSel == SEL_ENTITY) {
-            PortStereoEdits_AdjustEntity(&sKey, step, clear);
+    if (live && sSel == SEL_RECT) {
+        if (clear) {
+            PortStereoEdits_Reset(sArea, sRoom, sLayers, sCol0, sRow0, sCol1, sRow1);
+        } else if (step != 0) {
+            PortStereoEdits_Step(sArea, sRoom, sLayers, sCol0, sRow0, sCol1, sRow1, step);
+        } else if (down & PORT_STEREO_EDITOR_A) {
+            /* Level the selection at its lowest point, each layer by itself. */
+            for (int layer = PORT_STEREO_EDIT_BOTTOM; layer <= PORT_STEREO_EDIT_TOP; layer <<= 1) {
+                int lo, hi;
+                if ((sLayers & layer) && SelectionRange(layer, &lo, &hi)) {
+                    PortStereoEdits_Set(sArea, sRoom, layer, sCol0, sRow0, sCol1, sRow1, lo);
+                }
+            }
         }
+    } else if (live && sSel == SEL_ENTITY && (step != 0 || clear)) {
+        PortStereoEdits_AdjustEntity(&sKey, step, clear);
     }
     PublishStatus();
 }
 
 static uint32_t Color(unsigned r, unsigned g, unsigned b, unsigned a) {
     return r | (g << 8) | (b << 16) | (a << 24);
+}
+
+/* Ground at the reference level is left clear; lower is blue, higher runs
+ * green, yellow, orange, red, purple. */
+static uint32_t HeightColour(int height) {
+    static const unsigned kUp[6][3] = { { 60, 220, 60 },  { 170, 230, 40 }, { 250, 220, 40 },
+                                        { 250, 150, 30 }, { 240, 60, 40 },  { 200, 40, 170 } };
+    if (height == 0) {
+        return 0;
+    }
+    if (height < 0) {
+        return Color(40, 90, 255, (unsigned)(70 + 25 * Min(-height, 4)));
+    }
+    const unsigned* c = kUp[Min(height, 6) - 1];
+    return Color(c[0], c[1], c[2], 110);
 }
 
 static void AddRect(PortStereoEditorView* view, float x, float y, float w, float h, uint32_t abgr) {
@@ -392,6 +469,7 @@ static bool HighlightVisit(Entity* e, void* context) {
 
 void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->rectCount = 0;
+    view->cells = false;
     const float s = Scale();
     const float x0 = sPanX > 0.0f ? sPanX : 0.0f, y0 = sPanY > 0.0f ? sPanY : 0.0f;
     const float x1 = sPanX + PORT_STEREO_EDITOR_VIEW_W / s < 240.0f ? sPanX + PORT_STEREO_EDITOR_VIEW_W / s : 240.0f;
@@ -409,39 +487,47 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
         return;
     }
 
-    /* Cells that carry a correction, tinted by which way and how far. */
     const int roomX = RoomScreenX(), roomY = RoomScreenY();
     const int col0 = CellCol(x0), col1 = CellCol(x1 - 1.0f), row0 = CellRow(y0), row1 = CellRow(y1 - 1.0f);
-    for (int row = row0; row <= row1; ++row) {
-        /* A run of cells with the same correction is one rectangle. */
-        int runStart = col0, runDelta = 0;
-        for (int col = col0; col <= col1 + 1; ++col) {
-            const int d = col <= col1 && CellInRoom(col, row)
-                              ? PortStereoEdits_CellDelta(gRoomControls.area, gRoomControls.room, col, row, sLayers)
-                              : 0;
-            if (d == runDelta) {
-                continue;
+    /* The colour layer: how high each cell stands, or only which carry an
+     * edit when SELECT has turned the heights off. */
+    view->cells = true;
+    view->cellsX = (float)(roomX + col0 * 8);
+    view->cellsY = (float)(roomY + row0 * 8);
+    for (int r = 0; r < PORT_STEREO_EDITOR_CELLS; ++r) {
+        for (int c = 0; c < PORT_STEREO_EDITOR_CELLS; ++c) {
+            const int col = col0 + c, row = row0 + r, at = r * PORT_STEREO_EDITOR_CELLS + c;
+            uint32_t colour = 0;
+            bool edited = false;
+            if (col <= col1 && row <= row1 && CellInRoom(col, row)) {
+                int h;
+                edited = PortStereoEdits_CellEdited(gRoomControls.area, gRoomControls.room, col, row, sLayers) != 0;
+                if (sHeatmap && CellHeight(col, row, sLayers, &h)) {
+                    colour = HeightColour(h);
+                } else if (!sHeatmap && edited) {
+                    colour = Color(255, 255, 255, 90);
+                }
             }
-            if (runDelta != 0) {
-                const unsigned a = (unsigned)Min(50 + 25 * abs(runDelta), 170);
-                AddRect(view, ViewX((float)(roomX + runStart * 8)), ViewY((float)(roomY + row * 8)),
-                        (float)((col - runStart) * 8) * s, 8.0f * s,
-                        runDelta > 0 ? Color(60, 140, 255, a) : Color(255, 80, 60, a));
-            }
-            runStart = col;
-            runDelta = d;
+            view->cellColour[at] = colour;
+            view->cellEdited[at] = edited && sHeatmap;
         }
     }
     /* The grid of cells over the picture, every second line (a whole tile)
      * stronger. */
     for (int col = col0; col <= col1 + 1; ++col) {
         const float x = ViewX((float)(roomX + col * 8));
+        if ((col & 1) && sZoom == 1) {
+            continue; /* whole tiles only, or the cells crowd the picture */
+        }
         if (x >= view->dstX && x <= view->dstX + view->dstW) {
             AddRect(view, x, view->dstY, 1.0f, view->dstH, (col & 1) ? Color(255, 255, 255, 70) : Color(0, 0, 0, 110));
         }
     }
     for (int row = row0; row <= row1 + 1; ++row) {
         const float y = ViewY((float)(roomY + row * 8));
+        if ((row & 1) && sZoom == 1) {
+            continue;
+        }
         if (y >= view->dstY && y <= view->dstY + view->dstH) {
             AddRect(view, view->dstX, y, view->dstW, 1.0f, (row & 1) ? Color(255, 255, 255, 70) : Color(0, 0, 0, 110));
         }
