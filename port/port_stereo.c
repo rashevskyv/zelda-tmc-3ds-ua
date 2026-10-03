@@ -161,7 +161,7 @@ static void MeasureRoom(void) {
     PortStereo_RoomHeights(&room, sTopSolid, sGround, sHeight, sHeightTop);
 }
 
-/* Stereoscopic 3D depth for an entity's sprites: two units in front of the
+/* Stereoscopic 3D depth for an entity's sprites: a unit in front of the
  * ground it stands on, wherever that ground is not the reference level. */
 static u8 EntityDepth(const Entity* entity) {
     if (!sLive || entity->spriteRendering.b3 != sSpritePriority) {
@@ -181,7 +181,7 @@ static u8 EntityDepth(const Entity* entity) {
     if (ground == PORT_STEREO_RELIEF_UNKNOWN || ground == 0) {
         return 0;
     }
-    int depth = 3 * sSpritePriority - 2 - ground;
+    int depth = 3 * sSpritePriority - 1 - ground;
     if (depth < 0) {
         depth = 0;
     }

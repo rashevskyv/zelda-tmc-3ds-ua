@@ -639,6 +639,7 @@ static void ClearEntityDrawLists(void) {
 typedef struct {
     s16 packed0; /* (screenX << 6) | shadowType */
     s16 packed1; /* (screenY << 6) | priority   */
+    u8 stereoDepth; /* port: the shadow's depth tag, see port_stereo.h */
 } DeferredEntry;
 
 typedef struct {
@@ -835,6 +836,14 @@ static void LookupAndRenderNormal(Entity* entity, s32 x, s32 y, u32 flags, u16 e
  *   spriteAnimation[2] < 0:  direct frame data from entity->myHeap
  *   spriteAnimation[2] > 0:  multi-part from gUnk_020000C0
  */
+static u8 EntityStereoDepthTag(const Entity* entity) {
+    u8 tag = gPortStereoEntityDepth ? gPortStereoEntityDepth(entity) : 0;
+    if (tag == 0 && gPortStereoEntityGround) {
+        tag = gPortStereoEntityGround(entity);
+    }
+    return tag;
+}
+
 static void DrawEntitySprites(Entity* entity, s32 x, s32 y, u32 flags, u16 extra) {
     s8 renderMode = (s8)entity->spriteAnimation[2]; /* offset 0x28 */
 
@@ -842,10 +851,7 @@ static void DrawEntitySprites(Entity* entity, s32 x, s32 y, u32 flags, u16 extra
     /* Set for ALL render paths (the player uses the multi-part path renderMode==1),
      * so the swamp-sink OAM marking below covers Link's composite sprite. */
     sRenderingPlayer = (entity == &gPlayerEntity.base);
-    sStereoDepthTag = gPortStereoEntityDepth ? gPortStereoEntityDepth(entity) : 0;
-    if (sStereoDepthTag == 0 && gPortStereoEntityGround) {
-        sStereoDepthTag = gPortStereoEntityGround(entity);
-    }
+    sStereoDepthTag = EntityStereoDepthTag(entity);
 
     if (renderMode == 0) {
         /* Normal sprite rendering */
@@ -999,6 +1005,7 @@ static void ProcessEntityForDraw(Entity* entity) {
             u32 idx = (ssBits + ((u32)frame << 1)) >> 2;
             if (idx < 32u && sShoesOverlayPtrs[idx] != NULL) {
                 u16 overlayExtra = (u16)(extra & 0x0C00u); /* keep priority bits only */
+                sStereoDepthTag = EntityStereoDepthTag(entity);
                 RenderSpritePieces(sShoesOverlayPtrs[idx], (s16)x, (s16)overlayY, 0, overlayExtra);
             }
         }
@@ -1028,6 +1035,10 @@ static void ProcessEntityForDraw(Entity* entity) {
     de->packed1 = (s16)(u16)(((u32)(u16)deferY << 6) | (u32)prioBits);
     u8 shadowType = (*(u8*)&entity->spriteSettings & 0x30) >> 4;
     de->packed0 = (s16)(u16)(((u32)(u16)x << 6) | (u32)shadowType);
+    /* Stereoscopic 3D: the shadow lies on the ground, a unit behind the
+     * entity that casts it. */
+    de->stereoDepth = sStereoDepthTag != 0 ? (u8)(sStereoDepthTag + 1)
+                                           : PORT_STEREO_DEPTH(3 * prioBits);
 }
 
 /* ---- ProcessDrawList (port of sub_080B2534) ---- */
@@ -1166,9 +1177,10 @@ static void ProcessDeferredList(void) {
         const u8* frameData = sShadowFramePtrs[listType];
         if (frameData == NULL)
             continue;
-        sStereoDepthTag = 0;
+        sStereoDepthTag = de->stereoDepth;
         RenderSpritePieces(frameData, (s16)screenX, (s16)screenY, 0, extra);
     }
+    sStereoDepthTag = 0;
 }
 
 /* ---- ram_DrawEntities (port of arm_DrawEntities @ 0x080B23F0) ----

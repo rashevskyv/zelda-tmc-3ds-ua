@@ -328,7 +328,7 @@ int main(void) {
         int bgPx[4], objPx[4];
         PpuGpu3DS_StereoDisparity(1.0f, bgPx, objPx);
         CHECK(bgPx[1] == 3 && bgPx[2] == 6 && bgPx[3] == 9);
-        CHECK(objPx[1] == 1 && objPx[2] == 4 && objPx[3] == 7);
+        CHECK(objPx[1] == 2 && objPx[2] == 5 && objPx[3] == 8);
     }
     /* The 16-byte vertex stores UV as a fixed-point multiple of
      * 1/PPU_GPU3DS_UV_SCALE. That is only safe if it is lossless for every UV

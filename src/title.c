@@ -68,10 +68,10 @@ static void UpdatePressStartIcon(void);
 static bool32 Port_UA_HandleTitlescreen(void); /* tloz-tmc-ua: Ukrainian title, port/port_ua_title.inc */
 #include "port_stereo.h"
 /* Stereoscopic 3D: the Nintendo and Capcom logos are the whole picture of
- * their screen, so they stand just behind the screen plane instead of at the
- * depth their background's priority gives a room's floor. */
+ * their screen. On a plain backdrop a picture just behind the screen plane
+ * reads as flat, so they stand in front of it instead. */
 #define PORT_STEREO_LOGO_BG 2
-#define PORT_STEREO_LOGO_DEPTH 2
+#define PORT_STEREO_LOGO_DEPTH (-3)
 #endif
 
 static void (*const sIntroSequenceHandlers[])(void) = {

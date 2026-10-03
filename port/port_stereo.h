@@ -9,15 +9,17 @@
  * one flat image ignore it.
  *
  * Depth is in the renderer's units, 0 on the screen plane and larger deeper:
- * backgrounds of priority 1, 2, 3 sit at 3, 6, 9.
+ * backgrounds of priority 1, 2, 3 sit at 3, 6, 9. Down to
+ * -MODE1_STEREO_DEPTH_NEAR stands in front of the screen.
  */
 #ifndef PORT_STEREO_H
 #define PORT_STEREO_H
 
+#include "cpu/mode1.h"
 #include "entity.h"
 
 /* A depth as stored per OAM entry; 0 means "by priority". */
-#define PORT_STEREO_DEPTH(units) ((u8)((units) + 1))
+#define PORT_STEREO_DEPTH(units) ((u8)((units) + 1 + MODE1_STEREO_DEPTH_NEAR))
 
 /* Depth for a whole background (0..3), or 0 for "by priority" again. For
  * screens whose only layer is the picture itself -- a logo on a plain

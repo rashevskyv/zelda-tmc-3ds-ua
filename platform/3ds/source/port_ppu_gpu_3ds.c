@@ -673,7 +673,8 @@ static int ReliefShiftPx(const PpuGpu3DSBatch* batch, unsigned relief) {
     const unsigned tag = batch->layer <= PPU_GPU3DS_BG3
                                  ? virtuappu_mode1_bg_stereo_depth[batch->layer]
                                  : 0u;
-    const int base = tag != 0u ? (int)tag - 1 : 3 * (int)(batch->priority & 3u);
+    const int base = tag != 0u ? (int)tag - 1 - MODE1_STEREO_DEPTH_NEAR
+                               : 3 * (int)(batch->priority & 3u);
     const int units = base - (int)relief;
     return EyeShare(PpuGpu3DS_StereoUnitsPx(sEyeShift.pxPerUnit, units > 0 ? units : 0),
                     sEyeShift.rightEye);
@@ -1029,7 +1030,8 @@ bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerUnit) {
             right.obj[i] = EyeShare(disparity.obj[i], true);
         }
         for (unsigned units = 0; units < PPU_GPU3DS_STEREO_TAG_UNITS; ++units) {
-            const int px = PpuGpu3DS_StereoUnitsPx(pxPerUnit, (int)units);
+            const int px = PpuGpu3DS_StereoUnitsPx(pxPerUnit,
+                                                   (int)units - MODE1_STEREO_DEPTH_NEAR);
             left.tagged[units] = EyeShare(px, false);
             right.tagged[units] = EyeShare(px, true);
         }

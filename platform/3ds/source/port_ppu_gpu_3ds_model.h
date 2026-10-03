@@ -15,9 +15,10 @@ static inline bool PpuGpu3DS_ShouldUse(bool isNew3DS, bool initialized, bool dis
  * priority, obj[] by OBJ priority.
  *
  * Depth is counted in units: a background sits 3 units behind the one of the
- * priority above it, and a sprite 2 units in front of the background that
- * shares its priority -- BG 0 at 0, OBJ 1 at 1, BG 1 at 3, OBJ 2 at 4, BG 2 at
- * 6, OBJ 3 at 7, BG 3 at 9. Sprites get a place of their own because the game
+ * priority above it, and a sprite 1 unit in front of the background that
+ * shares its priority -- BG 0 at 0, OBJ 1 at 2, BG 1 at 3, OBJ 2 at 5, BG 2 at
+ * 6, OBJ 3 at 8, BG 3 at 9. Any further and a sprite seems to hover over the
+ * ground it stands on. Sprites get a place of their own because the game
  * gives them the priority of the ground they stand on; sharing its depth
  * would leave the whole world on one plane. Priority 0 (HUD, text) stays on
  * the screen plane for both kinds. The backdrop is a flat colour with nothing
@@ -27,13 +28,16 @@ static inline bool PpuGpu3DS_ShouldUse(bool isNew3DS, bool initialized, bool dis
  * pixel in front of its ground whenever the ground has any depth, and never
  * in front of the layer that covers it. */
 enum {
-    PPU_GPU3DS_STEREO_TAG_UNITS = 16,
+    /* Tagged depths, from MODE1_STEREO_DEPTH_NEAR units in front of the
+     * screen plane back. */
+    PPU_GPU3DS_STEREO_TAG_UNITS = 16 + MODE1_STEREO_DEPTH_NEAR,
     PPU_GPU3DS_RELIEF_LAYERS = 2,
     PPU_GPU3DS_RELIEF_MAX_UNITS = 8,
 };
 
 static inline int PpuGpu3DS_StereoUnitsPx(float pxPerUnit, int units) {
-    return (int)((float)units * pxPerUnit + 0.5f);
+    const float px = (float)units * pxPerUnit;
+    return px < 0.0f ? -(int)(0.5f - px) : (int)(px + 0.5f);
 }
 
 static inline void PpuGpu3DS_StereoDisparity(float pxPerUnit, int bg[4], int obj[4]) {
@@ -42,7 +46,7 @@ static inline void PpuGpu3DS_StereoDisparity(float pxPerUnit, int bg[4], int obj
         bg[priority] = PpuGpu3DS_StereoUnitsPx(pxPerUnit, 3 * priority);
     obj[0] = 0;
     for (int priority = 1; priority < 4; ++priority) {
-        int px = PpuGpu3DS_StereoUnitsPx(pxPerUnit, 3 * priority - 2);
+        int px = PpuGpu3DS_StereoUnitsPx(pxPerUnit, 3 * priority - 1);
         if (px >= bg[priority] && bg[priority] > 0) px = bg[priority] - 1;
         if (px < bg[priority - 1]) px = bg[priority - 1];
         obj[priority] = px;
