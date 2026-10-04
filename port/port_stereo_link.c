@@ -59,6 +59,7 @@
 #include "port_rom.h"
 
 #include <errno.h>
+#include <malloc.h>
 #include <stdarg.h>
 #include <strings.h>
 #include <fcntl.h>
@@ -306,33 +307,37 @@ static bool LinkStart(void) {
  * it moves (Festival Town's stalls): VRAM alone draws the far cells wrong.
  * Every cell's 8x8 pixels are kept as they were when last on screen. */
 enum { CHAR_BYTES = 32 };
-static u8* sRoomChars;   /* [layer][row * SIDE + col][32] */
-static u8* sRoomCharsHave; /* [layer][row * SIDE + col] */
-static int sRoomCharsRoom = -1;
+static u8* sRoomChars;     /* [layer][row * cols + col][32], the room's size */
+static u8* sRoomCharsHave; /* [layer][row * cols + col] */
+static int sRoomCharsRoom = -1, sRoomCharsCols, sRoomCharsRows;
 
 static void CaptureVisibleChars(void) {
     const int room = (gRoomControls.area << 8) | gRoomControls.room;
     if (!InGame() || gRoomControls.scrollAction > 1) {
         return;
     }
-    if (sRoomChars == NULL) {
-        sRoomChars = malloc(2u * SIDE * SIDE * CHAR_BYTES);
-        sRoomCharsHave = malloc(2u * SIDE * SIDE);
+    int cols = gRoomControls.width / 8, rows = gRoomControls.height / 8;
+    cols = cols < SIDE ? cols : SIDE;
+    rows = rows < SIDE ? rows : SIDE;
+    if (sRoomCharsRoom != room || sRoomChars == NULL) {
+        free(sRoomChars);
+        free(sRoomCharsHave);
+        const size_t cells = (size_t)cols * (size_t)rows;
+        sRoomChars = malloc(2u * cells * CHAR_BYTES);
+        sRoomCharsHave = calloc(2u, cells);
         if (sRoomChars == NULL || sRoomCharsHave == NULL) {
             free(sRoomChars);
             free(sRoomCharsHave);
             sRoomChars = sRoomCharsHave = NULL;
+            sRoomCharsRoom = -1;
             return;
         }
-        sRoomCharsRoom = -1;
-    }
-    if (sRoomCharsRoom != room) {
-        memset(sRoomCharsHave, 0, 2u * SIDE * SIDE);
         sRoomCharsRoom = room;
+        sRoomCharsCols = cols;
+        sRoomCharsRows = rows;
     }
     const int x0 = (int)gRoomControls.scroll_x - (int)gRoomControls.origin_x;
     const int y0 = (int)gRoomControls.scroll_y - (int)gRoomControls.origin_y;
-    const int cols = gRoomControls.width / 8, rows = gRoomControls.height / 8;
     for (int layer = 0; layer < 2; ++layer) {
         const MapLayer* map = layer ? &gMapTop : &gMapBottom;
         if (map->bgSettings == NULL) {
@@ -341,13 +346,13 @@ static void CaptureVisibleChars(void) {
         const u32 base = ((map->bgSettings->control >> 2) & 3) * 0x4000u;
         for (int row = y0 >> 3; row <= (y0 + 159) >> 3; ++row) {
             for (int col = x0 >> 3; col <= (x0 + 239) >> 3; ++col) {
-                if (row < 0 || col < 0 || row >= rows || col >= cols || row >= SIDE || col >= SIDE) {
+                if (row < 0 || col < 0 || row >= rows || col >= cols) {
                     continue;
                 }
                 const u32 tile = (u32)(col >> 1) | ((u32)(row >> 1) << 6);
                 const u32 index = Port_Stereo_TileDrawIndex(layer, tile);
                 const u16 entry = map->subTiles[index * 4 + ((col & 1) | ((row & 1) << 1))];
-                const u32 at = (u32)layer * SIDE * SIDE + (u32)row * SIDE + (u32)col;
+                const u32 at = (u32)layer * (u32)(cols * rows) + (u32)row * (u32)cols + (u32)col;
                 memcpy(sRoomChars + at * CHAR_BYTES, gVram + ((base + (entry & 0x3ffu) * CHAR_BYTES) & 0xffffu),
                        CHAR_BYTES);
                 sRoomCharsHave[at] = 1;
@@ -480,7 +485,31 @@ typedef struct {
     size_t length, capacity;
 } Buffer;
 
+/* Every buffer starts with room for the HTTP head, so an answer is sent from
+ * it as it is: on the console a second copy of a large answer is memory the
+ * game misses (a room after a camera tour is over a megabyte). */
+enum { HEAD_RESERVE = 400 };
+
+static bool BufferEnsure(Buffer* b, size_t capacity) {
+    if (b->capacity >= capacity) {
+        return true;
+    }
+    char* grown = realloc(b->data, capacity);
+    if (grown == NULL) {
+        return false;
+    }
+    if (b->data == NULL) {
+        b->length = HEAD_RESERVE;
+    }
+    b->data = grown;
+    b->capacity = capacity;
+    return true;
+}
+
 static void Put(Buffer* b, const void* data, size_t length) {
+    if (b->data == NULL && !BufferEnsure(b, HEAD_RESERVE + 4096)) {
+        return;
+    }
     if (b->length + length > b->capacity) {
         size_t capacity = b->capacity ? b->capacity : 4096;
         while (capacity < b->length + length) {
@@ -512,6 +541,23 @@ static void PutF(Buffer* b, const char* format, ...) {
 static void PutU16(Buffer* b, unsigned value) {
     const u8 bytes[2] = { (u8)value, (u8)(value >> 8) };
     Put(b, bytes, 2);
+}
+
+static int ResponseHead(char* head, size_t size, int status, const char* type, size_t length) {
+    const char* reason = status == 200 ? "OK" : status == 202 ? "Accepted" : status == 204 ? "No Content"
+                       : status == 404 ? "Not Found"
+                       : status == 409 ? "Conflict" : "Bad Request";
+    return snprintf(head, size,
+                    "HTTP/1.0 %d %s\r\n"
+                    "Access-Control-Allow-Origin: *\r\n"
+                    "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                    "Access-Control-Allow-Headers: Content-Type\r\n"
+                    "Access-Control-Allow-Private-Network: true\r\n"
+                    "Cache-Control: no-store\r\n"
+                    "Content-Type: %s\r\n"
+                    "Content-Length: %u\r\n"
+                    "Connection: close\r\n\r\n",
+                    status, reason, type, (unsigned)length);
 }
 
 static void Respond(Client* client, int status, const char* type, const void* body, size_t length) {
@@ -548,8 +594,18 @@ static void RespondText(Client* client, int status, const char* text) {
 }
 
 static void RespondBuffer(Client* client, const char* type, Buffer* b) {
-    Respond(client, 200, type, b->data, b->length);
-    free(b->data);
+    if (b->data == NULL) {
+        Respond(client, 200, type, NULL, 0);
+        return;
+    }
+    char head[HEAD_RESERVE];
+    const int n = ResponseHead(head, sizeof(head), 200, type, b->length - HEAD_RESERVE);
+    /* The head goes right before the body, in the room left for it. */
+    memcpy(b->data + HEAD_RESERVE - n, head, (size_t)n);
+    client->response = b->data;
+    client->responseSent = (size_t)(HEAD_RESERVE - n);
+    client->responseLength = b->length;
+    b->data = NULL;
 }
 
 static int QueryInt(const char* query, const char* name, int fallback) {
@@ -594,6 +650,18 @@ static const RoomHeader* RoomHeaderOf(int area, int room) {
     return &table[room];
 }
 
+/* What malloc can still hand out: the heap not yet taken from the system,
+ * and the free pieces of what was (3DS: libctru's __ctru_heap_size). */
+static unsigned HeapLeft(void) {
+#ifdef TMC_3DS
+    extern u32 __ctru_heap_size;
+    const struct mallinfo info = mallinfo();
+    return (unsigned)(__ctru_heap_size - (u32)info.arena + (u32)info.fordblks);
+#else
+    return 0;
+#endif
+}
+
 static void AnswerStatus(Client* client) {
     Buffer b = { 0 };
     const RoomHeader* header = RoomHeaderOf(gRoomControls.area, gRoomControls.room);
@@ -602,7 +670,7 @@ static void AnswerStatus(Client* client) {
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
          "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
-         "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d}",
+         "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -612,7 +680,8 @@ static void AnswerStatus(Client* client) {
          PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false",
          gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
          sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
-         gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room);
+         gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
+         HeapLeft());
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -716,6 +785,19 @@ static void AnswerRoom(Client* client) {
     EntityOut count = { NULL, 0, false };
     VisitEntities(&count);
     Buffer b = { 0 };
+    /* One allocation of the right size, not a doubling one. */
+    {
+        const size_t cells = (size_t)view.cols * (size_t)view.rows;
+        const size_t shots = sSweep.room == ((gRoomControls.area << 8) | gRoomControls.room) ? (size_t)sSweep.shotCount : 0;
+        const size_t size = HEAD_RESERVE + 32 + 2 * (8192 + 4096 + 4096 + 16384) + 0x10000 + 0x200 + 4 * 16384 +
+                            2 * 16384 + (size_t)count.count * 12 + (8 + 0x400 + 0x8000 + 0x200) +
+                            shots * (12 + 0x400 + 0x8000) + (8 + 2 * cells * (1 + CHAR_BYTES)) + 4 + 16384 + 64;
+        if (!BufferEnsure(&b, size)) {
+            RespondText(client, 409, "not enough memory for the room");
+            LinkLog("[link] no memory for a %u-byte room", (unsigned)size);
+            return;
+        }
+    }
     Put(&b, "TMCR", 4);
     PutU16(&b, 1);
     const u8 ids[2] = { gRoomControls.area, gRoomControls.room };
@@ -769,18 +851,13 @@ static void AnswerRoom(Client* client) {
     /* The background graphics of every cell as last seen on screen. */
     CaptureVisibleChars();
     if (sRoomChars != NULL && sRoomCharsRoom == ((gRoomControls.area << 8) | gRoomControls.room)) {
-        const int cols = view.cols < SIDE ? view.cols : SIDE, rows = view.rows < SIDE ? view.rows : SIDE;
+        const size_t cells = (size_t)sRoomCharsCols * (size_t)sRoomCharsRows;
         Put(&b, "CHRS", 4);
-        PutU16(&b, (unsigned)cols);
-        PutU16(&b, (unsigned)rows);
+        PutU16(&b, (unsigned)sRoomCharsCols);
+        PutU16(&b, (unsigned)sRoomCharsRows);
         for (int layer = 0; layer < 2; ++layer) {
-            for (int row = 0; row < rows; ++row) {
-                Put(&b, sRoomCharsHave + (size_t)layer * SIDE * SIDE + (size_t)row * SIDE, (size_t)cols);
-            }
-            for (int row = 0; row < rows; ++row) {
-                Put(&b, sRoomChars + ((size_t)layer * SIDE * SIDE + (size_t)row * SIDE) * CHAR_BYTES,
-                    (size_t)cols * CHAR_BYTES);
-            }
+            Put(&b, sRoomCharsHave + (size_t)layer * cells, cells);
+            Put(&b, sRoomChars + (size_t)layer * cells * CHAR_BYTES, cells * CHAR_BYTES);
         }
     }
     /* What each map tile is drawn with: special tiles (0x4000 and up) are
