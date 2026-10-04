@@ -9,6 +9,7 @@
  *
  *   cell <area> <room> <b|t> <d|s> <row> <col0> <col1> <value>
  *   tile <b|t> <hash> <quarter> <d|s> <value>
+ *   screen <key> <bg> <depth>
  *   ent <kind> <id> <type> all <delta>
  *   ent <kind> <id> <type> <area> <room> <col> <row> <delta>
  *
@@ -68,6 +69,13 @@ static int sRoomCount;
 static EntityEdit sEntities[MAX_ENTITIES];
 static int sEntityCount;
 static TileRule sRules[MAX_RULES];
+enum { MAX_SCREENS = 128 };
+static struct {
+    u32 key;
+    u8 bg;
+    s8 depth;
+} sScreens[MAX_SCREENS];
+static int sScreenCount;
 static int sRuleCount;
 /* Rule index + 1 by key, rebuilt when the rules change. */
 static u16 sRuleSlots[RULE_SLOTS];
@@ -209,6 +217,13 @@ static void ParseLine(const char* line, int kinds, int onlyRoom) {
         if (edits != NULL && ClipRect(&col0, &row0, &col1, &row1)) {
             StepCells(edits, (int)c & PORT_STEREO_EDIT_BOTH, col0, row0, col1, row1, value);
         }
+    } else if ((kinds & PORT_STEREO_EXPORT_SCREENS) && sscanf(line, "screen %x %u %d", &a, &b, &value) == 3) {
+        if (b < 4 && sScreenCount < MAX_SCREENS) {
+            sScreens[sScreenCount].key = a;
+            sScreens[sScreenCount].bg = (u8)b;
+            sScreens[sScreenCount].depth = (s8)Clamp(value, -4, 15);
+            ++sScreenCount;
+        }
     } else if ((kinds & PORT_STEREO_EXPORT_ENTITIES) && sscanf(line, "ent %x %x %x all %d", &a, &b, &c, &value) == 4) {
         if (sEntityCount < MAX_ENTITIES) {
             sEntities[sEntityCount++] = (EntityEdit){ { (u8)a, (u8)b, (u8)c, TRUE, 0, 0, 0, 0 },
@@ -312,6 +327,11 @@ static void Write(Out* out, int kinds, int onlyRoom) {
                       (r->flags & CELL_SET) ? 's' : 'd', r->value);
         }
     }
+    if (kinds & PORT_STEREO_EXPORT_SCREENS) {
+        for (int i = 0; i < sScreenCount; ++i) {
+            OutPrintf(out, "screen %08lx %u %d\n", (unsigned long)sScreens[i].key, sScreens[i].bg, sScreens[i].depth);
+        }
+    }
     if (kinds & PORT_STEREO_EXPORT_ENTITIES) {
         for (int i = 0; i < sEntityCount; ++i) {
             const PortStereoEntityKey* k = &sEntities[i].key;
@@ -336,6 +356,7 @@ bool32 PortStereoEdits_Save(void) {
     fputs("# The Minish Cap 3DS: stereo 3D relief corrections (3D editor, PC editor)\n"
           "# cell <area> <room> <b|t layer> <d add|s set> <row> <col0> <col1> <value>\n"
           "# tile <b|t> <graphics hash> <quarter> <d|s> <value>\n"
+          "# screen <key> <bg 0-3> <depth>   (menus and other screens that are not a room)\n"
           "# ent <kind> <id> <type> all <delta> | ent <kind> <id> <type> <area> <room> <col> <row> <delta>\n",
           out.file);
     Write(&out, PORT_STEREO_EXPORT_ALL, -1);
@@ -378,6 +399,9 @@ void PortStereoEdits_Import(int kinds, int area, int room, const char* text, siz
     }
     if (kinds & PORT_STEREO_EXPORT_ENTITIES) {
         sEntityCount = 0;
+    }
+    if (kinds & PORT_STEREO_EXPORT_SCREENS) {
+        sScreenCount = 0;
     }
     const char* end = text + length;
     while (text < end) {
@@ -606,4 +630,40 @@ int PortStereoEdits_AdjustEntity(const PortStereoEntityKey* key, int step, bool3
     }
     Changed();
     return delta;
+}
+
+bool32 PortStereoEdits_ScreenDepth(u32 key, int bg, int* depth) {
+    PortStereoEdits_Load();
+    for (int i = 0; i < sScreenCount; ++i) {
+        if (sScreens[i].key == key && sScreens[i].bg == bg) {
+            *depth = sScreens[i].depth;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+void PortStereoEdits_SetScreenDepth(u32 key, int bg, bool32 set, int depth) {
+    PortStereoEdits_Load();
+    if (bg < 0 || bg >= 4) {
+        return;
+    }
+    for (int i = 0; i < sScreenCount; ++i) {
+        if (sScreens[i].key == key && sScreens[i].bg == bg) {
+            if (set) {
+                sScreens[i].depth = (s8)Clamp(depth, -4, 15);
+            } else {
+                sScreens[i] = sScreens[--sScreenCount];
+            }
+            Changed();
+            return;
+        }
+    }
+    if (set && sScreenCount < MAX_SCREENS) {
+        sScreens[sScreenCount].key = key;
+        sScreens[sScreenCount].bg = (u8)bg;
+        sScreens[sScreenCount].depth = (s8)Clamp(depth, -4, 15);
+        ++sScreenCount;
+        Changed();
+    }
 }

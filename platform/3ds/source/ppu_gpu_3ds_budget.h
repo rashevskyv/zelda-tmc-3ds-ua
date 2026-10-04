@@ -29,7 +29,8 @@ static inline size_t PpuGpu3DS_CommandWordsRequired(const PpuGpu3DSCommandBuffer
         if (batch->indexCount == 0) continue;
         /* A relief batch is drawn once per pixel its cells stand out by. */
         const size_t draws = batch->relief ? PPU_GPU3DS_RELIEF_MAX_DRAWS
-                             : batch->layer == PPU_GPU3DS_OBJ && !batch->objWindow ? 2u : 1u;
+                             : batch->layer == PPU_GPU3DS_OBJ && !batch->objWindow ? 2u
+                             : batch->underBg ? 2u : 1u;
         if (words > SIZE_MAX - draws * PPU_GPU3DS_WORDS_PER_DRAW) return SIZE_MAX;
         words += draws * PPU_GPU3DS_WORDS_PER_DRAW;
     }

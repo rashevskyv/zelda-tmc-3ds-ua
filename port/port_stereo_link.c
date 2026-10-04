@@ -171,6 +171,8 @@ static void SetTestMode(bool on) {
         memcpy(sTestBackup, &gSave, sizeof(gSave));
         sTestMode = true;
         Port_DebugAction_GiveAllItems();
+        /* The whole world map, as if every area had been visited. */
+        memset(gSave.areaVisitFlags, 0xff, sizeof(gSave.areaVisitFlags));
     } else {
         sTestMode = false;
         Port_DebugAction_SetNoclip(0);
@@ -668,13 +670,35 @@ static unsigned HeapLeft(void) {
 
 static void AnswerStatus(Client* client) {
     Buffer b = { 0 };
+    /* The backgrounds shown: number, priority, editor depth (or null). */
+    char bgs[192] = "";
+    {
+        const u16 dispcnt = (u16)(gIoMem[0] | (gIoMem[1] << 8));
+        size_t n = 0;
+        for (int bg = 0; bg < 4; ++bg) {
+            if (!(dispcnt & (0x100 << bg))) {
+                continue;
+            }
+            const u16 bgcnt = (u16)(gIoMem[8 + bg * 2] | (gIoMem[9 + bg * 2] << 8));
+            int depth;
+            const bool set = PortStereoEdits_ScreenDepth(Port_Stereo_ScreenKey(), bg, &depth);
+            char one[48];
+            if (set) {
+                snprintf(one, sizeof(one), "%s{\"bg\":%d,\"prio\":%u,\"depth\":%d}", n ? "," : "", bg, bgcnt & 3, depth);
+            } else {
+                snprintf(one, sizeof(one), "%s{\"bg\":%d,\"prio\":%u,\"depth\":null}", n ? "," : "", bg, bgcnt & 3);
+            }
+            n += (size_t)snprintf(bgs + n, sizeof(bgs) - n, "%s", one);
+        }
+    }
     const RoomHeader* header = RoomHeaderOf(gRoomControls.area, gRoomControls.room);
     PutF(&b,
          "{\"inGame\":%s,\"live\":%s,\"area\":%u,\"room\":%u,\"width\":%u,\"height\":%u,"
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
          "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
-         "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u}",
+         "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
+         "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s]}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -685,7 +709,7 @@ static void AnswerStatus(Client* client) {
          gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
          sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
          gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
-         HeapLeft());
+         HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs);
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -1231,6 +1255,18 @@ static void Answer(Client* client) {
         snprintf(text, sizeof(text), "{\"test\":%s,\"noclip\":%s}", sTestMode ? "true" : "false",
                  Port_DebugQuery_Noclip() ? "true" : "false");
         Respond(client, 200, "application/json", text, strlen(text));
+    } else if (post && strcmp(target, "/screen") == 0) {
+        /* A background's depth on this screen when it is not a room (menus,
+         * the world map); without depth= it goes back to its own. */
+        const int bg = QueryInt(query, "bg", -1);
+        const bool set = query != NULL && strstr(query, "depth=") != NULL;
+        if (bg < 0 || bg > 3 || Port_Stereo_InRoom()) {
+            RespondText(client, 409, "not a menu screen");
+        } else {
+            PortStereoEdits_SetScreenDepth(Port_Stereo_ScreenKey(), bg, set, QueryInt(query, "depth", 0));
+            PortStereoEdits_Save();
+            RespondText(client, 200, "ok");
+        }
     } else if (post && strcmp(target, "/sweep") == 0) {
         RespondText(client, SweepStart() ? 202 : 409, sSweep.active ? "sweeping" : "not now");
     } else if (post && strcmp(target, "/remove") == 0) {

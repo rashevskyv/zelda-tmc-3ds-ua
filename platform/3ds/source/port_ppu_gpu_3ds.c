@@ -716,9 +716,31 @@ static u32 ShiftScissorEdge(unsigned edge, int px) {
 
 static void DrawBatchAt(const PpuGpu3DSBatch* batch, int shiftPx);
 
+/* How deep a background sits, in units: its depth tag, or its priority. */
+static int BgBaseUnits(unsigned layer, unsigned priority) {
+    const unsigned tag = layer <= PPU_GPU3DS_BG3 ? virtuappu_mode1_bg_stereo_depth[layer] : 0u;
+    return tag != 0u ? (int)tag - 1 - MODE1_STEREO_DEPTH_NEAR : 3 * (int)(priority & 3u);
+}
+
 static void DrawBatch(const PpuGpu3DSBatch* batch) {
     if (batch->relief == 0) {
-        DrawBatchAt(batch, EyeShiftPx(batch));
+        const int own = EyeShiftPx(batch);
+        /* The upper background first once more where the lower one sits, so
+         * the strip beside its edges shows its own edge, not what the art
+         * left underneath (see underBg). Not under alpha blending, where it
+         * would blend twice. */
+        if (batch->underBg != 0u && batch->effect != PPU_GPU3DS_EFFECT_ALPHA &&
+            (batch->color & PPU_GPU3DS_ALPHA_COMPLEMENT) == 0) {
+            const unsigned under = batch->underBg - 1u;
+            if (BgBaseUnits(under, batch->underPriority) > BgBaseUnits(batch->layer, batch->priority)) {
+                PpuGpu3DSBatch lower = *batch;
+                lower.layer = (uint8_t)under;
+                lower.priority = batch->underPriority;
+                const int shift = EyeShiftPx(&lower);
+                if (shift != own) DrawBatchAt(batch, shift);
+            }
+        }
+        DrawBatchAt(batch, own);
         return;
     }
     /* Raised cells of a background: every cell at least `relief` units tall,

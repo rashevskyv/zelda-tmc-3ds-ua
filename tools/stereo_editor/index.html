@@ -80,6 +80,10 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
 #live.open { display: block; }
 #live canvas { display: block; image-rendering: pixelated; }
 #live .row { margin: 0 0 4px; }
+#live .winBtns { margin-left: auto; display: flex; gap: 4px; }
+#live .winBtns button { padding: 0 7px; min-width: 24px; line-height: 20px; }
+#live.min canvas, #live.min .liveOpt { display: none; }
+#live.min .row { margin: 0; }
 #ctxMenu { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; min-width: 260px; }
 #ctxMenu.open { display: block; }
 #ctxMenu div { padding: 6px 10px; border-radius: 5px; cursor: pointer; }
@@ -133,9 +137,10 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     </div>
     <div id="legendBar" class="row legend" style="position:absolute;left:10px;bottom:6px;background:rgba(22,24,29,.85);padding:3px 8px;border-radius:6px"></div>
     <div id="live"><div class="row small"><b>Кадр консолі</b>
-      <select id="liveMode"><option value="side">поруч (ліве | праве)</option><option value="cross">перехресно (праве | ліве)</option><option value="ana">анагліф</option><option value="left">лише ліве</option></select>
-      <select id="liveScale"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select>
-      <span id="liveInfo" class="muted"></span></div><canvas id="liveCanvas" width="484" height="160"></canvas></div>
+      <select id="liveMode" class="liveOpt"><option value="side">поруч (ліве | праве)</option><option value="cross">перехресно (праве | ліве)</option><option value="ana">анагліф</option><option value="left">лише ліве</option></select>
+      <select id="liveScale" class="liveOpt"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select>
+      <span id="liveInfo" class="muted"></span>
+      <span class="winBtns"><button id="liveMin" title="Згорнути / розгорнути">–</button><button id="liveClose" title="Закрити (V)">×</button></span></div><canvas id="liveCanvas" width="484" height="160"></canvas></div>
   </section>
   <aside class="right">
     <div class="section">
@@ -192,6 +197,12 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <div class="row small"><label><input type="checkbox" id="entAll"> зміни для всіх таких</label></div>
       <div class="row"><button id="entDown" title="Далі від глядача">далі</button><button id="entUp" title="Ближче до глядача">ближче</button><button id="entReset">скинути</button></div>
       <div id="entityList"></div>
+    </div>
+    <div class="section" id="screenSec" style="display:none">
+      <h3>Шари екрана</h3>
+      <div class="small muted">Консоль зараз не в кімнаті, а на екрані меню (мапа, предмети…). Глибину кожного шару цього екрана можна задати тут; дивіться на «кадр консолі». Менше число — ближче до глядача, від’ємне — перед екраном.</div>
+      <div id="screenKey" class="small muted"></div>
+      <div id="screenLayers"></div>
     </div>
     <div class="section">
       <h3>Тестування</h3>
@@ -593,6 +604,7 @@ async function pollStatus() {
     const st = await api("/status", { json: true, timeout: 4000 });
     const prev = S.status; S.status = st;
     if (st.test !== undefined && (!S.test || S.test.test !== st.test || S.test.noclip !== st.noclip)) { S.test = { test: st.test, noclip: st.noclip }; syncTest(); }
+    syncScreen(st);
     setChip(`${hex2(st.area)}:${hex2(st.room)}${st.live ? "" : " · 3D вимкнено"}${st.editor ? " · редактор 3D відкритий" : ""}`, st.live ? "ok" : "warn");
     if ($("follow").checked && st.inGame && !st.transition && (!S.room || st.area !== S.room.area || st.room !== S.room.room) && !S.followBusy) await loadCurrentRoom();
     else if (S.room && st.area === S.room.area && st.room === S.room.room && st.rev !== S.lastRev && !S.pushTimer && !S.dirtyRooms.size) {
@@ -1564,11 +1576,44 @@ async function gotoRoomQuiet(area, room) {
   return false;
 }
 
+/* ===== Screens that are not a room: per-layer depth (POST /screen) ===== */
+let screenSig = "";
+function syncScreen(st) {
+  const on = st.inRoom === false && Array.isArray(st.bgs);
+  $("screenSec").style.display = on ? "" : "none";
+  if (!on) { screenSig = ""; return; }
+  const sig = st.screen + JSON.stringify(st.bgs);
+  if (sig === screenSig) return;
+  if (!screenSig && !$("liveOn").checked) { $("liveOn").checked = true; $("liveOn").dispatchEvent(new Event("change")); }
+  screenSig = sig;
+  $("screenKey").textContent = "екран " + st.screen;
+  const box = $("screenLayers"); box.innerHTML = "";
+  if (!st.bgs.length) { box.textContent = "шарів немає"; return; }
+  for (const b of st.bgs) {
+    const own = 3 * b.prio, depth = b.depth === null ? own : b.depth;
+    const row = document.createElement("div"); row.className = "row";
+    const set = d => screenDepth(b.bg, d);
+    const btn = (t, title, f) => { const e = document.createElement("button"); e.textContent = t; e.title = title; e.onclick = f; return e; };
+    const label = document.createElement("span");
+    label.innerHTML = `BG${b.bg} <span class="muted">(пріоритет ${b.prio})</span>: <b>${depth}</b>${b.depth === null ? ' <span class="muted">своя</span>' : ""}`;
+    row.append(label, btn("ближче", "Ближче до глядача", () => set(depth - 1)), btn("далі", "Далі від глядача", () => set(depth + 1)));
+    if (b.depth !== null) row.append(btn("скинути", "Повернути шару його власну глибину", () => set(null)));
+    box.append(row);
+  }
+}
+async function screenDepth(bg, depth) {
+  if (depth !== null) depth = Math.max(-4, Math.min(15, depth));
+  try {
+    await api(`/screen?bg=${bg}${depth === null ? "" : "&depth=" + depth}`, { method: "POST", body: "" });
+    screenSig = ""; syncScreen(await api("/status", { json: true }));
+  } catch (e) { toast("Не вдалося: " + e.message); }
+}
+
 /* ===== The console's own picture (GET /frame) ===== */
 let liveBusy = false;
 async function liveTick() {
   if (!$("liveOn").checked) return;
-  if (S.connected && !liveBusy && !document.hidden) {
+  if (S.connected && !liveBusy && !document.hidden && !$("live").classList.contains("min")) {
     liveBusy = true;
     try {
       const buf = await api("/frame", { binary: true, timeout: 5000 });
@@ -1741,6 +1786,11 @@ $("crawlAllBtn").onclick = () => {
   if (!crawling && !confirm("Лінк по черзі відвідає всі ~600 кімнат гри (кілька десятків хвилин), а редактор збереже їх. Зупинити — натиснути кнопку ще раз. Почати?")) return;
   crawl(S.rooms);
 };
+$("liveMin").addEventListener("click", () => {
+  const min = $("live").classList.toggle("min");
+  $("liveMin").textContent = min ? "□" : "–";
+});
+$("liveClose").addEventListener("click", () => { $("liveOn").checked = false; $("liveOn").dispatchEvent(new Event("change")); });
 $("liveOn").addEventListener("change", () => { $("live").classList.toggle("open", $("liveOn").checked); if ($("liveOn").checked) liveTick(); });
 window.addEventListener("resize", resize);
 setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */

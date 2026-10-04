@@ -273,6 +273,12 @@ typedef struct PpuGpu3DSBatch {
      * background. Drawn only for a stereo frame, after the background itself
      * and after the batch for one unit less, which it steps on from. */
     uint8_t relief;
+    /* Non-zero on the relief's upper background: the lower one (its number
+     * plus one) and that one's priority. The upper layer stands in front of
+     * the lower, so beside its edges each eye sees past it onto what the
+     * GBA art left under it -- often a dark outline; a copy of the upper
+     * layer at the lower one's depth fills that strip with its own edge. */
+    uint8_t underBg, underPriority;
     uint16_t color;
     bool objWindow, semiTransparent;
     /* Added to every vertex position by the shader. Zero except for

@@ -25,6 +25,8 @@
 #include "map.h"
 #include "room.h"
 #include "screen.h"
+#include "menu.h"
+#include "game.h"
 #include "port_widescreen.h"
 #include "area.h"
 
@@ -300,7 +302,37 @@ static u8 EntityShadowDepth(const Entity* entity) {
     return PORT_STEREO_DEPTH(depth < 0 ? 0 : depth);
 }
 
+/* Which screen this is when it is not a room: the task, its state, the main
+ * state (a subtask when GAMEMAIN_SUBTASK), and the pause menu's page. */
+u32 Port_Stereo_ScreenKey(void) {
+    return ((u32)gMain.task << 24) | ((u32)gMain.state << 16) | ((u32)gMain.substate << 8) | (u32)gMenu.menuType;
+}
+
+bool32 Port_Stereo_InRoom(void) {
+    return gMain.task == TASK_GAME && gMain.state == GAMETASK_MAIN && gMain.substate != GAMEMAIN_SUBTASK;
+}
+
+/* The editor's layer depths for screens that are not a room. */
+static void ApplyScreenDepths(void) {
+    static u8 sSet; /* backgrounds this set, to let go of later */
+    const bool32 screen = !Port_Stereo_InRoom();
+    const u32 key = Port_Stereo_ScreenKey();
+    for (int bg = 0; bg < 4; ++bg) {
+        int depth;
+        if (screen && PortStereoEdits_ScreenDepth(key, bg, &depth)) {
+            /* Every frame: the relief lets go of a background it sank by
+             * setting it back, which may come after this. */
+            Port_Stereo_SetBgDepth((unsigned)bg, PORT_STEREO_DEPTH(depth));
+            sSet |= (u8)(1 << bg);
+        } else if (sSet & (1 << bg)) {
+            Port_Stereo_SetBgDepth((unsigned)bg, 0);
+            sSet &= (u8)~(1 << bg);
+        }
+    }
+}
+
 void Port_Stereo_CommitRelief(void) {
+    ApplyScreenDepths();
     gPortStereoReliefBg[PORT_STEREO_RELIEF_BOTTOM] = -1;
     gPortStereoReliefBg[PORT_STEREO_RELIEF_TOP] = -1;
     gPortStereoReliefSink = 0;

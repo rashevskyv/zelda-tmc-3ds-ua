@@ -60,7 +60,8 @@ enum {
     PORT_STEREO_EXPORT_CELLS = 1,
     PORT_STEREO_EXPORT_TILES = 2,
     PORT_STEREO_EXPORT_ENTITIES = 4,
-    PORT_STEREO_EXPORT_ALL = 7,
+    PORT_STEREO_EXPORT_SCREENS = 8,
+    PORT_STEREO_EXPORT_ALL = 15,
 };
 char* PortStereoEdits_Export(int kinds, int area, int room, size_t* length);
 /* Replaces those edits -- the room's cells, all tile rules, all entity
@@ -84,5 +85,13 @@ int PortStereoEdits_EntityDelta(int area, int room, u8 kind, u8 id, u8 type, int
 /* The edit for exactly this key: its delta, or 0. */
 int PortStereoEdits_KeyDelta(const PortStereoEntityKey* key);
 int PortStereoEdits_AdjustEntity(const PortStereoEntityKey* key, int step, bool32 clear);
+
+/* Screens that are not a room (menus, the world map): a depth per
+ * background, in units (negative: in front of the screen plane), for the
+ * screen named by `key` (Port_Stereo_ScreenKey); false when none is set. */
+bool32 PortStereoEdits_ScreenDepth(u32 key, int bg, int* depth);
+/* Sets that depth, or with `set` false lets the background go back to its
+ * own. */
+void PortStereoEdits_SetScreenDepth(u32 key, int bg, bool32 set, int depth);
 
 #endif /* PORT_STEREO_EDITS_H */

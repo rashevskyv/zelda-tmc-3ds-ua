@@ -1724,6 +1724,10 @@ static bool build_text_bg(const PpuGpu3DSFrameView* frame, PpuGpu3DSCache* cache
     }
 
     const uint16_t bldcnt = read16(io, MODE1_IO_BLDCNT);
+    unsigned underBg = 0u;
+    if (frame->reliefCells[1] && frame->reliefCells[0] && frame->reliefBg[1] == bg &&
+        frame->reliefBg[0] < MODE1_GBA_BG_COUNT && frame->reliefBg[0] != bg)
+        underBg = frame->reliefBg[0] + 1u;
     const PpuGpu3DSBatch base = {
         .firstIndex = fromMap ? mapFirstIndex : (uint32_t)firstIndex,
         .indexCount = fromMap ? mapIndexCount
@@ -1738,6 +1742,10 @@ static bool build_text_bg(const PpuGpu3DSFrameView* frame, PpuGpu3DSCache* cache
         .objectIndex = UINT8_MAX,
         .offsetX = offsetX,
         .offsetY = offsetY,
+        .underBg = (uint8_t)underBg,
+        .underPriority = underBg
+                ? (uint8_t)(read16(io, MODE1_IO_BG0CNT + (underBg - 1u) * 2u) & 3u)
+                : 0u,
     };
     append_layer_batches(cmd, &base, regions, regionCount, bldcnt,
                          read16(io, MODE1_IO_BLDALPHA),
@@ -1752,6 +1760,7 @@ static bool build_text_bg(const PpuGpu3DSFrameView* frame, PpuGpu3DSCache* cache
         relief.firstIndex = map->reliefFirstIndex;
         relief.indexCount = map->reliefIndexCount[units];
         relief.relief = (uint8_t)units;
+        relief.underBg = 0;
         append_layer_batches(cmd, &relief, regions, regionCount, bldcnt,
                              read16(io, MODE1_IO_BLDALPHA),
                              read16(io, MODE1_IO_BLDY), emit, batchCursor);

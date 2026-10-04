@@ -77,5 +77,9 @@ bool32 Port_Stereo_RoomView(PortStereoRoomView* view);
 /* The tile set entry a map tile is drawn with (layer 0 bottom, 1 top), special
  * tiles resolved as the game draws them. */
 u32 Port_Stereo_TileDrawIndex(int layer, u32 tilePos);
+/* Screens that are not a room (menus, the world map) take per-background
+ * depths from the editor, keyed by this. */
+u32 Port_Stereo_ScreenKey(void);
+bool32 Port_Stereo_InRoom(void);
 
 #endif /* PORT_STEREO_H */
