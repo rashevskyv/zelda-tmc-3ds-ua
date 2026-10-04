@@ -29,6 +29,9 @@
  *      "OAMX" (none or more, from POST /sweep): s16 scrollX, scrollY, u16
  *        DISPCNT, u16 0, OAM[0x400], OBJ tiles[0x8000] -- the sprites at one
  *        stop of a camera tour of the room
+ *      "CHRS" (when known): u16 cols, rows; per layer: u8 seen[rows*cols],
+ *        then the 32 bytes of 4bpp pixels of each cell as last on screen
+ *        (cells whose graphics VRAM swaps as the camera moves)
  *      "RIDX", u16 drawIndex[2][64*64]: the tile set entry each map tile is
  *        drawn with (special tiles resolved)
  */
@@ -284,6 +287,61 @@ static bool LinkStart(void) {
     return true;
 }
 
+/* ---- Background graphics as seen ----
+ * Some rooms keep only the tiles near the camera in VRAM and load others as
+ * it moves (Festival Town's stalls): VRAM alone draws the far cells wrong.
+ * Every cell's 8x8 pixels are kept as they were when last on screen. */
+enum { CHAR_BYTES = 32 };
+static u8* sRoomChars;   /* [layer][row * SIDE + col][32] */
+static u8* sRoomCharsHave; /* [layer][row * SIDE + col] */
+static int sRoomCharsRoom = -1;
+
+static void CaptureVisibleChars(void) {
+    const int room = (gRoomControls.area << 8) | gRoomControls.room;
+    if (!InGame() || gRoomControls.scrollAction > 1) {
+        return;
+    }
+    if (sRoomChars == NULL) {
+        sRoomChars = malloc(2u * SIDE * SIDE * CHAR_BYTES);
+        sRoomCharsHave = malloc(2u * SIDE * SIDE);
+        if (sRoomChars == NULL || sRoomCharsHave == NULL) {
+            free(sRoomChars);
+            free(sRoomCharsHave);
+            sRoomChars = sRoomCharsHave = NULL;
+            return;
+        }
+        sRoomCharsRoom = -1;
+    }
+    if (sRoomCharsRoom != room) {
+        memset(sRoomCharsHave, 0, 2u * SIDE * SIDE);
+        sRoomCharsRoom = room;
+    }
+    const int x0 = (int)gRoomControls.scroll_x - (int)gRoomControls.origin_x;
+    const int y0 = (int)gRoomControls.scroll_y - (int)gRoomControls.origin_y;
+    const int cols = gRoomControls.width / 8, rows = gRoomControls.height / 8;
+    for (int layer = 0; layer < 2; ++layer) {
+        const MapLayer* map = layer ? &gMapTop : &gMapBottom;
+        if (map->bgSettings == NULL) {
+            continue;
+        }
+        const u32 base = ((map->bgSettings->control >> 2) & 3) * 0x4000u;
+        for (int row = y0 >> 3; row <= (y0 + 159) >> 3; ++row) {
+            for (int col = x0 >> 3; col <= (x0 + 239) >> 3; ++col) {
+                if (row < 0 || col < 0 || row >= rows || col >= cols || row >= SIDE || col >= SIDE) {
+                    continue;
+                }
+                const u32 tile = (u32)(col >> 1) | ((u32)(row >> 1) << 6);
+                const u32 index = Port_Stereo_TileDrawIndex(layer, tile);
+                const u16 entry = map->subTiles[index * 4 + ((col & 1) | ((row & 1) << 1))];
+                const u32 at = (u32)layer * SIDE * SIDE + (u32)row * SIDE + (u32)col;
+                memcpy(sRoomChars + at * CHAR_BYTES, gVram + ((base + (entry & 0x3ffu) * CHAR_BYTES) & 0xffffu),
+                       CHAR_BYTES);
+                sRoomCharsHave[at] = 1;
+            }
+        }
+    }
+}
+
 /* ---- A camera tour: sprites of the whole room ----
  * The OAM only holds what is on screen. POST /sweep walks the camera over
  * the room -- Link stays where he is: the camera follows a stand-in target --
@@ -383,6 +441,7 @@ static void SweepTick(void) {
     if (!(there && sSweep.waited >= SWEEP_SETTLE) && sSweep.waited < SWEEP_GIVE_UP) {
         return;
     }
+    CaptureVisibleChars();
     SweepShot* shot = malloc(sizeof(SweepShot));
     if (shot != NULL && sSweep.shotCount < MAX_SWEEP) {
         shot->scrollX = gRoomControls.scroll_x;
@@ -691,6 +750,23 @@ static void AnswerRoom(Client* client) {
             PutU16(&b, 0);
             Put(&b, shot->oam, sizeof(shot->oam));
             Put(&b, shot->objVram, sizeof(shot->objVram));
+        }
+    }
+    /* The background graphics of every cell as last seen on screen. */
+    CaptureVisibleChars();
+    if (sRoomChars != NULL && sRoomCharsRoom == ((gRoomControls.area << 8) | gRoomControls.room)) {
+        const int cols = view.cols < SIDE ? view.cols : SIDE, rows = view.rows < SIDE ? view.rows : SIDE;
+        Put(&b, "CHRS", 4);
+        PutU16(&b, (unsigned)cols);
+        PutU16(&b, (unsigned)rows);
+        for (int layer = 0; layer < 2; ++layer) {
+            for (int row = 0; row < rows; ++row) {
+                Put(&b, sRoomCharsHave + (size_t)layer * SIDE * SIDE + (size_t)row * SIDE, (size_t)cols);
+            }
+            for (int row = 0; row < rows; ++row) {
+                Put(&b, sRoomChars + ((size_t)layer * SIDE * SIDE + (size_t)row * SIDE) * CHAR_BYTES,
+                    (size_t)cols * CHAR_BYTES);
+            }
         }
     }
     /* What each map tile is drawn with: special tiles (0x4000 and up) are
@@ -1225,6 +1301,10 @@ static void PendingGotoTick(void) {
 
 void PortStereoLink_Tick(void) {
     ++sFrame;
+    /* Keep the background graphics of what is on screen, twice a second. */
+    if (sEnabled && sNetUp && (sFrame % 30) == 0) {
+        CaptureVisibleChars();
+    }
     SweepTick();
     if (sTestMode) {
         if (!sEnabled) {

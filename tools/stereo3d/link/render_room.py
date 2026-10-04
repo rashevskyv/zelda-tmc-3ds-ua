@@ -30,6 +30,11 @@ def parse(d):
         sx_, sy_, dc = struct.unpack_from('<hhH', d, off + 4); off += 12
         oam = struct.unpack_from('<512H', d, off); off += 0x400
         r['shots'].append(dict(sx=sx_, sy=sy_, dispcnt=dc, oam=oam, objvram=d[off:off + 0x8000])); off += 0x8000
+    if d[off:off + 4] == b'CHRS':
+        cols, rows = struct.unpack_from('<HH', d, off + 4); off += 8; r['ccols'] = cols; r['cseen'] = []; r['chars'] = []
+        for _ in range(2):
+            r['cseen'].append(d[off:off + cols * rows]); off += cols * rows
+            r['chars'].append(d[off:off + cols * rows * 32]); off += cols * rows * 32
     if d[off:off + 4] == b'RIDX':
         off += 4; r['ridx'] = [struct.unpack_from('<4096H', d, off), struct.unpack_from('<4096H', d, off + 8192)]
     return r
@@ -47,10 +52,14 @@ def layer(r, L):
             for q in range(4):
                 e = sub[idx * 4 + q]; tile = e & 0x3ff; hf = e >> 10 & 1; vf = e >> 11 & 1; pb = (e >> 12) * 16
                 a = base + tile * 32
+                col, row = tx * 2 + (q & 1), ty * 2 + (q >> 1); kept = None
+                if 'chars' in r and col < r['ccols']:
+                    cell = row * r['ccols'] + col
+                    if cell < len(r['cseen'][L]) and r['cseen'][L][cell]: kept = r['chars'][L][cell * 32:cell * 32 + 32]
                 for y in range(8):
                     for x in range(8):
                         sx_ = 7 - x if hf else x; sy_ = 7 - y if vf else y
-                        b = vram[(a + sy_ * 4 + sx_ // 2) & 0xffff]; ci = (b >> 4) if sx_ & 1 else (b & 15)
+                        b = kept[sy_ * 4 + sx_ // 2] if kept else vram[(a + sy_ * 4 + sx_ // 2) & 0xffff]; ci = (b >> 4) if sx_ & 1 else (b & 15)
                         if ci: px[tx * 16 + (q & 1) * 8 + x, ty * 16 + (q >> 1) * 8 + y] = rgb(pal[pb + ci]) + (255,)
     return img
 

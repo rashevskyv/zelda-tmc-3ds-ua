@@ -406,6 +406,15 @@ function parseRoom(buf) {
     shot.objVram = new Uint8Array(buf.slice(off, off + 0x8000)); off += 0x8000;
     r.shots.push(shot);
   }
+  /* Background pixels of each cell as last seen on screen (VRAM swaps some). */
+  if (off + 8 <= buf.byteLength && String.fromCharCode(u8[off], u8[off + 1], u8[off + 2], u8[off + 3]) === "CHRS") {
+    const cols = dv.getUint16(off + 4, true), rows = dv.getUint16(off + 6, true); off += 8;
+    r.charsCols = cols; r.charsSeen = []; r.chars = [];
+    for (let L = 0; L < 2; ++L) {
+      r.charsSeen.push(new Uint8Array(buf.slice(off, off + cols * rows))); off += cols * rows;
+      r.chars.push(new Uint8Array(buf.slice(off, off + cols * rows * 32))); off += cols * rows * 32;
+    }
+  }
   if (off + 4 + 2 * 8192 <= buf.byteLength && String.fromCharCode(u8[off], u8[off + 1], u8[off + 2], u8[off + 3]) === "RIDX") {
     off += 4;
     r.drawIndex = [new Uint16Array(buf.slice(off, off + 8192)), new Uint16Array(buf.slice(off + 8192, off + 16384))]; off += 16384;
@@ -426,9 +435,12 @@ function renderLayer(r, L) {
       const e = lay.sub[idx * 4 + q], tile = e & 0x3ff, hf = (e >> 10) & 1, vf = (e >> 11) & 1, pb = (e >> 12) * 16;
       const a = base + tile * 32;
       const ox = tx * 16 + (q & 1) * 8, oy = ty * 16 + (q >> 1) * 8;
+      /* The pixels the console kept for this cell, when it has them. */
+      const cell = r.chars ? (oy >> 3) * r.charsCols + (ox >> 3) : -1;
+      const kept = cell >= 0 && (ox >> 3) < r.charsCols && r.charsSeen[L][cell] ? r.chars[L].subarray(cell * 32, cell * 32 + 32) : null;
       for (let y = 0; y < 8; ++y) for (let x = 0; x < 8; ++x) {
         const sx = hf ? 7 - x : x, sy = vf ? 7 - y : y;
-        const b = r.vram[(a + sy * 4 + (sx >> 1)) & 0xffff], ci = (sx & 1) ? b >> 4 : b & 15;
+        const b = kept ? kept[sy * 4 + (sx >> 1)] : r.vram[(a + sy * 4 + (sx >> 1)) & 0xffff], ci = (sx & 1) ? b >> 4 : b & 15;
         if (!ci) continue;
         const c = pal[pb + ci], p = ((oy + y) * r.width + ox + x) * 4;
         px[p] = c[0]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = 255;
@@ -446,12 +458,14 @@ function renderSprites(r) {
   const out = [0, 1, 2, 3].map(() => { const c = document.createElement("canvas"); c.width = r.width; c.height = r.height; return c; });
   if (!r.oam) return out;
   const images = out.map(c => c.getContext("2d").createImageData(r.width, r.height));
-  /* The tour's stops first, the current frame last (it is the freshest). */
-  for (const shot of [...(r.shots || []), { oam: r.oam, objVram: r.objVram, dispcnt: r.dispcnt, scrollX: r.scrollX, scrollY: r.scrollY }])
-    drawOam(r, shot, images);
+  /* Each part of the room takes its sprites from the one stop nearest to it
+   * (the current frame among them), so walkers do not show twice. */
+  const shots = [...(r.shots || []), { oam: r.oam, objVram: r.objVram, dispcnt: r.dispcnt, scrollX: r.scrollX, scrollY: r.scrollY }];
+  const centres = shots.map(s => [s.scrollX - r.originX + 120, s.scrollY - r.originY + 80]);
+  shots.forEach((shot, i) => drawOam(r, shot, images, centres, i));
   return out.map((c, p) => { c.getContext("2d").putImageData(images[p], 0, 0); return c; });
 }
-function drawOam(r, shot, images) {
+function drawOam(r, shot, images, centres, own) {
   const pal = [...r.objPalette].map(rgb555), oneD = (shot.dispcnt & 0x40) !== 0;
   const camX = shot.scrollX - r.originX, camY = shot.scrollY - r.originY;
   for (let i = 127; i >= 0; --i) {
@@ -467,6 +481,12 @@ function drawOam(r, shot, images) {
     const hf = !affine && (a1 & 0x1000), vf = !affine && (a1 & 0x2000), c256 = (a0 & 0x2000) !== 0;
     const tile = a2 & 0x3ff, prio = (a2 >> 10) & 3, bank = (a2 >> 12) * 16, alpha = gfx === 1 ? 160 : 255;
     if (prio === 0) continue; /* the HUD: hearts, buttons, rupees */
+    if (centres && centres.length > 1) {
+      const cx = camX + x + w / 2, cy = camY + y + h / 2;
+      let best = 0, bestD = Infinity;
+      centres.forEach(([px, py], k) => { const d = (px - cx) ** 2 + (py - cy) ** 2; if (d < bestD) { bestD = d; best = k; } });
+      if (best !== own) continue;
+    }
     const img = images[prio], step = c256 ? 2 : 1;
     for (let py = 0; py < h; ++py) for (let px = 0; px < w; ++px) {
       const sx = hf ? w - 1 - px : px, sy = vf ? h - 1 - py : py;
