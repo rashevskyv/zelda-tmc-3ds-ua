@@ -76,6 +76,9 @@ typedef struct {
     unsigned age;
     /* Waiting for the renderer's copy of the eyes (GET /frame). */
     unsigned frameWait;
+    /* Frames since the answer went out: the console's sockets drop what is
+     * still unsent when closed at once, so the client closes first. */
+    unsigned draining;
 } Client;
 
 static volatile bool sEnabled;
@@ -659,6 +662,14 @@ static bool RequestComplete(const Client* client) {
 }
 
 static void ServeClient(Client* client) {
+    if (client->draining) {
+        char sink[256];
+        const ssize_t n = recv(client->socket, sink, sizeof(sink), 0);
+        if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || ++client->draining > 180) {
+            CloseClient(client);
+        }
+        return;
+    }
     if (client->response == NULL) {
         for (;;) {
             if (client->requestLength + 4096 + 1 > client->requestCapacity) {
@@ -734,7 +745,8 @@ static void ServeClient(Client* client) {
         budget -= (size_t)n;
     }
     if (client->responseSent >= client->responseLength) {
-        CloseClient(client);
+        shutdown(client->socket, SHUT_WR);
+        client->draining = 1;
     }
 }
 
