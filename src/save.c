@@ -192,6 +192,15 @@ u32 InitSaveData(void) {
 }
 
 u32 WriteSaveFile(u32 index, SaveFile* saveFile) {
+#ifdef TMC_3DS
+    {
+        /* The PC stereo editor's test mode: its items stay off the card. */
+        extern bool PortStereoLink_SavesBlocked(void);
+        if (PortStereoLink_SavesBlocked()) {
+            return TRUE;
+        }
+    }
+#endif
 #ifdef PC_PORT
     {
         extern bool Port_RandoSave_SaveActiveSlot(int slot);

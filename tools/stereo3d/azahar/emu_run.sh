@@ -5,7 +5,11 @@ S=${TMC_EMU_BACKUPS:-/tmp/claude-1000/-home-xhr-dev-zeldamc-zelda-tmc-3ds-ua/316
 U=/mnt/c/Users/Administrator/AppData/Roaming/Azahar
 T=/mnt/c/Users/Administrator/AppData/Local/Temp/tmc3d
 PS="powershell.exe -NoProfile -ExecutionPolicy Bypass -File"
-powershell.exe -NoProfile -Command "Get-Process azahar -ErrorAction SilentlyContinue | Stop-Process -Force" >/dev/null 2>&1; sleep 2
+# Someone may be playing something else in Azahar: then touch nothing (its
+# window, its config) and stop. Only our own test windows are closed.
+other=$(powershell.exe -NoProfile -Command "Get-Process azahar -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowTitle -match '\|' -and \$_.MainWindowTitle -notmatch 'Minish' } | ForEach-Object { \$_.MainWindowTitle }" 2>/dev/null | tr -d '\r')
+if [ -n "$other" ]; then echo "Azahar is busy with another game ($other); not touching it" >&2; exit 3; fi
+powershell.exe -NoProfile -Command "Get-Process azahar -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowTitle -notmatch '\|' -or \$_.MainWindowTitle -match 'Minish' } | Stop-Process -Force" >/dev/null 2>&1; sleep 2
 python3 - "$U/config/qt-config.ini" <<'PY'
 import sys,re
 p=sys.argv[1]; s=open(p,encoding='utf-8').read()

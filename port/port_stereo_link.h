@@ -30,6 +30,11 @@
  *   POST /save                       write stereo_edits.txt
  *   POST /file?name=x.3dsx           a new build into sdmc:/3ds/ (3DSX only)
  *   POST /remove?name=x.3dsx         delete an old build from sdmc:/3ds/
+ *   POST /test?on=0|1&noclip=0|1     test mode: every item, full hearts, no
+ *                                    saves written; ends (and restores the
+ *                                    save) when switched off or the link goes
+ *   POST /goto before a save is loaded starts the game from the last save
+ *   (title: START; file select: that slot, or a new game) and then warps.
  *   POST /relaunch?name=x.3dsx       quit and start that build (from the
  *                                    Homebrew Launcher only)
  *
@@ -56,6 +61,9 @@ void PortStereoLink_Label(char* out, size_t size);
 int PortStereoLink_Goto(int area, int room, int x, int y, int layer);
 /* A room's size in pixels; false when there is no such room. */
 bool PortStereoLink_RoomSize(int area, int room, int* width, int* height);
+
+/* Whether the game must not write its save (test mode). Any thread. */
+bool PortStereoLink_SavesBlocked(void);
 
 /* The cells the PC editor points at, as GBA screen rectangles {x, y, w, h};
  * returns how many. Main thread. */

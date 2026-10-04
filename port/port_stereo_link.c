@@ -44,6 +44,11 @@
 #include "scroll.h"
 #include "transitions.h"
 #include "fade.h"
+#include "fileselect.h"
+#include "ui.h"
+#include "structures.h"
+#include "screen.h"
+#include "save.h"
 #include "port_gba_mem.h"
 #include "port_rom.h"
 
@@ -62,6 +67,8 @@
 #ifndef PORT_STEREO_LINK_EDITOR_PAGE
 #define PORT_STEREO_LINK_EDITOR_PAGE "romfs:/stereo_editor.html"
 #endif
+
+#define LINK_START_BUTTON 0x0008 /* KEYINPUT bit, active low */
 
 /* Areas 0x00..0x8F, as port_rom.c resolves them. */
 #define LINK_AREA_COUNT 0x90
@@ -98,6 +105,64 @@ static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
+
+/* Test mode, only while the link is on: every item and skill, hearts kept
+ * full, optionally through walls; the save as it was is kept aside and comes
+ * back when the mode ends, and nothing is written to the card meanwhile. */
+static bool sTestMode;
+static SaveFile* sTestBackup;
+extern void Port_DebugAction_GiveAllItems(void);
+extern void Port_DebugAction_SetNoclip(int on);
+extern int Port_DebugQuery_Noclip(void);
+extern void UpdatePlayerSkills(void);
+extern void LoadItemGfx(void);
+extern void EraseHearts(void);
+
+static bool InGame(void);
+
+bool PortStereoLink_SavesBlocked(void) {
+    return sTestMode;
+}
+
+static void SetTestMode(bool on) {
+    if (on == sTestMode) {
+        return;
+    }
+    if (on) {
+        sTestBackup = malloc(sizeof(gSave));
+        if (sTestBackup == NULL) {
+            return;
+        }
+        memcpy(sTestBackup, &gSave, sizeof(gSave));
+        sTestMode = true;
+        Port_DebugAction_GiveAllItems();
+    } else {
+        sTestMode = false;
+        Port_DebugAction_SetNoclip(0);
+        if (sTestBackup != NULL) {
+            /* The HUD only ever grows its hearts and erases as many rows as the
+             * new count needs; wipe both rows while it still has twenty. */
+            gHUD.unk_2 = 1;
+            EraseHearts();
+            gScreen.bg0.updated = 1;
+            memcpy(&gSave, sTestBackup, sizeof(gSave));
+            free(sTestBackup);
+            sTestBackup = NULL;
+            if (InGame()) {
+                UpdatePlayerSkills();
+                LoadItemGfx();
+            }
+        }
+    }
+}
+
+/* A warp asked for before the game is running: press START on the title,
+ * continue the last save (or a new game) on file select, then warp. */
+static struct {
+    bool active;
+    int area, room, x, y, layer;
+    unsigned frames, fileSelectFrames, settledFrames;
+} sPendingGoto;
 
 /* Cells the editor points at: area << 8 | room, and runs of a row. */
 static int sHighlightRoom = -1;
@@ -229,7 +294,8 @@ static void PutU16(Buffer* b, unsigned value) {
 }
 
 static void Respond(Client* client, int status, const char* type, const void* body, size_t length) {
-    const char* reason = status == 200 ? "OK" : status == 204 ? "No Content" : status == 404 ? "Not Found"
+    const char* reason = status == 200 ? "OK" : status == 202 ? "Accepted" : status == 204 ? "No Content"
+                       : status == 404 ? "Not Found"
                        : status == 409 ? "Conflict" : "Bad Request";
     char head[384];
     const int n = snprintf(head, sizeof(head),
@@ -314,7 +380,8 @@ static void AnswerStatus(Client* client) {
          "{\"inGame\":%s,\"live\":%s,\"area\":%u,\"room\":%u,\"width\":%u,\"height\":%u,"
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
          "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
-         "\"fade\":%s}",
+         "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
+         "\"hudMax\":%u}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -322,7 +389,9 @@ static void AnswerStatus(Client* client) {
          (int)gPlayerEntity.base.y.HALF.HI - (int)gRoomControls.origin_y, header ? header->tileSet_id : 0u,
          gRoomControls.scrollAction > 1 ? "true" : "false", (unsigned long)PortStereoEdits_Revision(), sFrame,
          PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false",
-         gFadeControl.active ? "true" : "false");
+         gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
+         sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
+         gSave.stats.maxHealth, gHUD.maxHealth);
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -526,6 +595,17 @@ int PortStereoLink_Goto(int area, int room, int x, int y, int layer) {
 }
 
 static void AnswerGoto(Client* client, const char* query) {
+    if (gMain.task == TASK_TITLE || gMain.task == TASK_FILE_SELECT) {
+        const int area = QueryInt(query, "area", -1), room = QueryInt(query, "room", -1);
+        if (RoomHeaderOf(area, room) == NULL) {
+            RespondText(client, 404, "no such room");
+            return;
+        }
+        sPendingGoto = (typeof(sPendingGoto)){ true, area, room, QueryInt(query, "x", -1), QueryInt(query, "y", -1),
+                                               QueryInt(query, "layer", 1), 0, 0, 0 };
+        RespondText(client, 202, "starting the game, then warping");
+        return;
+    }
     const int status = PortStereoLink_Goto(QueryInt(query, "area", -1), QueryInt(query, "room", -1),
                                            QueryInt(query, "x", -1), QueryInt(query, "y", -1),
                                            QueryInt(query, "layer", 1));
@@ -683,6 +763,13 @@ static void Answer(Client* client) {
         } else {
             RespondText(client, 404, "no such cell");
         }
+    } else if (strcmp(target, "/debug-bg0") == 0) {
+        Buffer b = { 0 };
+        for (int i = 0x20; i < 0x60; ++i) {
+            PutF(&b, "%04x%s", gBG0Buffer[i], (i & 15) == 15 ? "\n" : " ");
+        }
+        PutF(&b, "unk_2=%u hudMax=%u hudHealth=%u\n", gHUD.unk_2, gHUD.maxHealth, gHUD.health);
+        RespondBuffer(client, "text/plain", &b);
     } else if (strcmp(target, "/selection") == 0) {
         /* What the console's own 3D editor has selected: "area room" then
          * "row col0 col1" lines. */
@@ -722,6 +809,17 @@ static void Answer(Client* client) {
         AnswerSelect(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/file") == 0) {
         AnswerFile(client, query, body, bodyLength);
+    } else if (post && strcmp(target, "/test") == 0) {
+        if (QueryInt(query, "on", -1) >= 0) {
+            SetTestMode(QueryInt(query, "on", 0) != 0);
+        }
+        if (QueryInt(query, "noclip", -1) >= 0) {
+            Port_DebugAction_SetNoclip(sTestMode && QueryInt(query, "noclip", 0) != 0);
+        }
+        char text[64];
+        snprintf(text, sizeof(text), "{\"test\":%s,\"noclip\":%s}", sTestMode ? "true" : "false",
+                 Port_DebugQuery_Noclip() ? "true" : "false");
+        Respond(client, 200, "application/json", text, strlen(text));
     } else if (post && strcmp(target, "/remove") == 0) {
         /* An old test build off the card; never the one running (romfs). */
         char name[64] = { 0 }, path[96];
@@ -862,8 +960,72 @@ static void ServeClient(Client* client) {
     }
 }
 
+extern void SetActiveSave(u32 idx);
+extern void ResetSaveFile(u32 index);
+
+static void PendingGotoTick(void) {
+    if (!sPendingGoto.active) {
+        return;
+    }
+    if (++sPendingGoto.frames > 60 * 40) {
+        sPendingGoto.active = false; /* the game never got there */
+        return;
+    }
+    if (gMain.task == TASK_TITLE) {
+        /* Hold START a few frames out of every sixteen, as a hand would. */
+        if ((sFrame & 15) < 3) {
+            *(volatile u16*)(gIoMem + 0x130) &= (u16)~LINK_START_BUTTON;
+        }
+    } else if (gMain.task == TASK_FILE_SELECT) {
+        /* The saves are read as the screen opens; give it a moment. */
+        if (++sPendingGoto.fileSelectFrames < 60) {
+            return;
+        }
+        int slot = gSaveHeader->saveFileId < NUM_SAVE_SLOTS ? gSaveHeader->saveFileId : 0;
+        if (gFileSelectState.saveStatus[slot] != 1 /* SAVE_VALID */) {
+            slot = -1;
+            for (int i = 0; i < NUM_SAVE_SLOTS && slot < 0; ++i) {
+                if (gFileSelectState.saveStatus[i] == 1) {
+                    slot = i;
+                }
+            }
+        }
+        if (slot < 0) {
+            /* No save at all: a new game that starts where the warp goes. */
+            slot = 0;
+            ResetSaveFile(0);
+            SaveFile* save = &gFileSelectState.saves[0];
+            save->initialized = 1;
+            save->name[0] = 'A';
+            save->saved_status.area_next = (u8)sPendingGoto.area;
+            save->saved_status.room_next = (u8)sPendingGoto.room;
+            gFileSelectState.saveStatus[0] = 1;
+        }
+        SetActiveSave((u32)slot);
+        SetTask(TASK_GAME);
+    } else if (!InGame() || gFadeControl.active || gRoomControls.scrollAction > 1) {
+        sPendingGoto.settledFrames = 0;
+    } else if (++sPendingGoto.settledFrames >= 90) {
+        /* A moment after the saved room is up: until then the game is still
+         * setting it up and would undo the warp. Link need not have control
+         * (a message may be open); a plain /goto does not ask for it either. */
+        if (PortStereoLink_Goto(sPendingGoto.area, sPendingGoto.room, sPendingGoto.x, sPendingGoto.y,
+                                sPendingGoto.layer) != 409) {
+            sPendingGoto.active = false;
+        }
+    }
+}
+
 void PortStereoLink_Tick(void) {
     ++sFrame;
+    if (sTestMode) {
+        if (!sEnabled) {
+            SetTestMode(false);
+        } else if (InGame() && gSave.stats.health < gSave.stats.maxHealth) {
+            gSave.stats.health = gSave.stats.maxHealth;
+        }
+    }
+    PendingGotoTick();
     if (sQuitIn != 0 && --sQuitIn == 0) {
         PortStereoLink_Quit();
     }

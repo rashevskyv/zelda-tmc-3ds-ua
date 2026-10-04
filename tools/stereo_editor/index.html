@@ -51,6 +51,7 @@ aside.right { border-left: 1px solid var(--line); }
 .roomItem { padding: 3px 6px; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
 .roomItem:hover { background: var(--panel2); }
 .roomItem.current { background: #1b3a4b; color: #fff; }
+.area.here > .head { color: #fff; background: #16303d; }
 .roomItem .badge { font-size: 10px; color: var(--accent2); }
 .roomItem .cached { font-size: 10px; color: var(--dim); }
 #viewWrap { position: relative; min-width: 0; min-height: 0; background: #0d0e11; overflow: hidden; }
@@ -115,11 +116,16 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <canvas id="view"></canvas>
     <div id="empty"><div><b>Кімнату ще не завантажено.</b><br><br>Увімкніть на консолі <i>Налаштування → Інструменти → Редактор ПК</i>,<br>впишіть адресу, яку вона покаже, і натисніть «Підключитися».<br>Для Azahar адреса — <b>localhost</b>.</div></div>
     <div id="hud"></div>
-    <div id="viewBar" style="position:absolute;right:10px;top:10px;display:flex;gap:6px">
-      <button id="areaBtn" title="Усі кімнати області на одній мапі (M)">Область</button>
-      <button id="crawlAreaBtn" title="Обійти всі кімнати цієї області на консолі й зберегти їх у кеш">Завантажити область</button>
-      <button id="crawlAllBtn" title="Обійти всі кімнати гри (довго; можна зупинити)">Уся гра</button>
+    <div id="viewBar" style="position:absolute;right:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 300px)">
+      <button class="toggle" data-check="showGrid" title="Сітка клітинок 8×8 і плиток 16×16 (G)">▦ Сітка</button>
+      <button class="toggle" data-check="showHeat" title="Кольори висот (C): земля прозора, нижче — синє, вище — зелене → жовте → червоне → фіолетове">■ Кольори</button>
+      <button class="toggle" data-check="showSprites" title="Спрайти гри: меблі, рами дверей…">☻ Спрайти</button>
+      <span class="sep" style="width:1px;background:var(--line)"></span>
+      <button id="areaBtn" title="Мапа області: усі вже відкриті кімнати області на своїх місцях (M). Клік — відкрити кімнату, Ctrl+клік — перенести туди Лінка">Мапа області</button>
+      <button id="crawlAreaBtn" title="Лінк по черзі відвідає кожну кімнату цієї області, а редактор збереже їх — тоді мапа області буде повна, і з кімнатами можна працювати без консолі">Обійти область</button>
+      <button id="crawlAllBtn" title="Те саме для всіх ~600 кімнат гри (кілька десятків хвилин; натисніть ще раз, щоб зупинити)">Обійти всю гру</button>
     </div>
+    <div id="legendBar" class="row legend" style="position:absolute;left:10px;bottom:6px;background:rgba(22,24,29,.85);padding:3px 8px;border-radius:6px"></div>
     <div id="live"><div class="row small"><b>Кадр консолі</b>
       <select id="liveMode"><option value="side">поруч (ліве | праве)</option><option value="cross">перехресно (праве | ліве)</option><option value="ana">анагліф</option><option value="left">лише ліве</option></select>
       <select id="liveScale"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select>
@@ -180,6 +186,12 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <div class="row small"><label><input type="checkbox" id="entAll"> зміни для всіх таких</label></div>
       <div class="row"><button id="entDown" title="Далі від глядача">далі</button><button id="entUp" title="Ближче до глядача">ближче</button><button id="entReset">скинути</button></div>
       <div id="entityList"></div>
+    </div>
+    <div class="section">
+      <h3>Тестування</h3>
+      <div class="row"><label title="Усі предмети, уміння, 20 сердець, ключі; серця весь час повні. Поки увімкнено, гра НЕ записує збереження, а після вимкнення все повертається як було"><input type="checkbox" id="testMode"> тестовий режим</label>
+        <label title="Лінк проходить крізь стіни (лише в тестовому режимі)"><input type="checkbox" id="noclip"> крізь стіни</label></div>
+      <div class="small muted">Лише поки консоль з'єднана з редактором. Ваш сейв не змінюється.</div>
     </div>
     <div class="section">
       <h3>Вигляд</h3>
@@ -532,6 +544,7 @@ async function pollStatus() {
   try {
     const st = await api("/status", { json: true, timeout: 4000 });
     const prev = S.status; S.status = st;
+    if (st.test !== undefined && (!S.test || S.test.test !== st.test || S.test.noclip !== st.noclip)) { S.test = { test: st.test, noclip: st.noclip }; syncTest(); }
     setChip(`${hex2(st.area)}:${hex2(st.room)}${st.live ? "" : " · 3D вимкнено"}${st.editor ? " · редактор 3D відкритий" : ""}`, st.live ? "ok" : "warn");
     if ($("follow").checked && st.inGame && !st.transition && (!S.room || st.area !== S.room.area || st.room !== S.room.room) && !S.followBusy) await loadCurrentRoom();
     else if (S.room && st.area === S.room.area && st.room === S.room.room && st.rev !== S.lastRev && !S.pushTimer && !S.dirtyRooms.size) {
@@ -578,9 +591,10 @@ async function gotoRoom(area, room) {
   const k = roomKey(area, room);
   if (S.connected) {
     try {
-      await api(`/goto?area=${area}&room=${room}`, { method: "POST", body: "" });
-      toast(`Переходжу в ${hex2(area)}:${hex2(room)}…`);
-      for (let i = 0; i < 40; ++i) {
+      const answer = await api(`/goto?area=${area}&room=${room}`, { method: "POST", body: "" });
+      const starting = /^starting/.test(answer);
+      toast(starting ? `Гра ще не запущена — запускаю останнє збереження й переходжу в ${hex2(area)}:${hex2(room)}…` : `Переходжу в ${hex2(area)}:${hex2(room)}…`);
+      for (let i = 0; i < (starting ? 140 : 40); ++i) {
         await new Promise(r => setTimeout(r, 250));
         const st = await api("/status", { json: true });
         if (st.area === area && st.room === room && !st.transition && st.inGame && !st.fade) { S.status = st; await new Promise(r => setTimeout(r, 400)); await loadCurrentRoom(); return; }
@@ -659,7 +673,15 @@ function renderRoomTree() {
 }
 function markCurrentRoomInTree() {
   const k = S.room ? roomKey(S.room.area, S.room.room) : "";
-  for (const it of document.querySelectorAll(".roomItem")) it.classList.toggle("current", it.dataset.key === k);
+  let current = null;
+  for (const it of document.querySelectorAll(".roomItem")) { const on = it.dataset.key === k; it.classList.toggle("current", on); if (on) current = it; }
+  for (const box of document.querySelectorAll(".area")) box.classList.remove("here");
+  if (current && current.dataset.key !== S.markedKey) {
+    /* Open the area the game is in and bring the room into view, once per move. */
+    const box = current.closest(".area"); box.classList.add("open", "here");
+    current.scrollIntoView({ block: "nearest" });
+    S.markedKey = current.dataset.key;
+  } else if (current) current.closest(".area").classList.add("here");
 }
 
 /* ===== Heights: measured, then tile rules, then room cells (as the game) ===== */
@@ -694,12 +716,15 @@ const UP_COLOURS = [[60, 220, 60], [170, 230, 40], [250, 220, 40], [250, 150, 30
 function heightColour(h) {
   if (h === 0) return null;
   if (h < 0) return `rgba(40,90,255,${(70 + 25 * Math.min(-h, 4)) / 255})`;
-  const c = UP_COLOURS[Math.min(h, 6) - 1]; return `rgba(${c[0]},${c[1]},${c[2]},${110 / 255})`;
+  const c = UP_COLOURS[Math.min(h, 6) - 1]; return `rgba(${c[0]},${c[1]},${c[2]},${150 / 255})`;
 }
 function buildLegend() {
-  const lg = $("legend"); lg.innerHTML = '<span class="small muted" style="width:auto;margin-right:4px">висота</span>';
+  buildLegendInto($("legend")); buildLegendInto($("legendBar"));
+}
+function buildLegendInto(lg) { lg.innerHTML = '<span class="small muted" style="width:auto;margin-right:4px">висота</span>';
   for (let h = -2; h <= 6; ++h) { const s = document.createElement("span"); const c = heightColour(h); s.style.background = c ? c.replace(/[\d.]+\)$/, "1)") : "transparent"; s.style.border = "1px solid #444"; s.textContent = h; lg.append(s); }
 }
+function syncToggles() { for (const b of document.querySelectorAll("[data-check]")) b.classList.toggle("on", $(b.dataset.check).checked); }
 
 /* ===== Showing a room ===== */
 function showRoom(room) {
@@ -756,11 +781,15 @@ function draw() {
     if (e && ((layerMask & 1 && e.flags[0][i] & CELL_HAS) || (layerMask & 2 && e.flags[1][i] & CELL_HAS))) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(col * 8, row * 8 + 0.5, 8, 1.2); }
     if (S.heights.rule[i] & layerMask) { ctx.strokeStyle = "rgba(80,220,255,.75)"; ctx.strokeRect(col * 8 + 1, row * 8 + 1, 6, 6); }
   }
-  if ($("showGrid").checked && S.zoom >= 2) {
-    ctx.beginPath();
-    for (let col = vx0; col <= vx1 + 1; ++col) { if (S.zoom < 3 && col & 1) continue; ctx.moveTo(col * 8, vy0 * 8); ctx.lineTo(col * 8, (vy1 + 1) * 8); }
-    for (let row = vy0; row <= vy1 + 1; ++row) { if (S.zoom < 3 && row & 1) continue; ctx.moveTo(vx0 * 8, row * 8); ctx.lineTo((vx1 + 1) * 8, row * 8); }
-    ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 1 / S.zoom; ctx.stroke();
+  if ($("showGrid").checked) {
+    /* 8x8 cells once they are big enough to tell apart; 16x16 tiles always. */
+    if (S.zoom >= 2) {
+      ctx.beginPath();
+      for (let col = vx0; col <= vx1 + 1; ++col) { if (!(col & 1)) continue; ctx.moveTo(col * 8, vy0 * 8); ctx.lineTo(col * 8, (vy1 + 1) * 8); }
+      for (let row = vy0; row <= vy1 + 1; ++row) { if (!(row & 1)) continue; ctx.moveTo(vx0 * 8, row * 8); ctx.lineTo((vx1 + 1) * 8, row * 8); }
+      ctx.strokeStyle = "rgba(0,0,0,.3)"; ctx.lineWidth = 1 / S.zoom; ctx.stroke();
+    }
+    ctx.lineWidth = 1 / S.zoom;
     ctx.beginPath();
     for (let col = vx0 - (vx0 & 1); col <= vx1 + 1; col += 2) { ctx.moveTo(col * 8, vy0 * 8); ctx.lineTo(col * 8, (vy1 + 1) * 8); }
     for (let row = vy0 - (vy0 & 1); row <= vy1 + 1; row += 2) { ctx.moveTo(vx0 * 8, row * 8); ctx.lineTo((vx1 + 1) * 8, row * 8); }
@@ -1350,7 +1379,7 @@ let crawling = false;
 async function crawl(rooms) {
   if (!S.connected) { toast("Потрібен зв'язок з консоллю"); return; }
   if (crawling) { crawling = false; return; }
-  crawling = true; const todo = rooms.filter(r => !cachedRooms.has(roomKey(r.area, r.room)));
+  crawling = true; $("crawlAreaBtn").textContent = $("crawlAllBtn").textContent = "Зупинити обхід"; const todo = rooms.filter(r => !cachedRooms.has(roomKey(r.area, r.room)));
   const back = S.room ? [S.room.area, S.room.room] : null;
   let done = 0, failed = 0;
   for (const r of todo) {
@@ -1362,6 +1391,7 @@ async function crawl(rooms) {
     } catch (e) { ++failed; }
   }
   crawling = false;
+  $("crawlAreaBtn").textContent = "Обійти область"; $("crawlAllBtn").textContent = "Обійти всю гру";
   $("pending").textContent = `обхід завершено: ${done} збережено, ${failed} не вдалося`;
   renderRoomTree();
   if (back) await gotoRoomQuiet(back[0], back[1]);
@@ -1521,6 +1551,14 @@ function uploadBuild(file) {
   xhr.send(file);
 }
 
+/* ===== Test mode on the console ===== */
+async function setTest(params) {
+  if (!S.connected) { toast("Спершу підключіться до консолі"); syncTest(); return; }
+  try { const st = JSON.parse(await api(`/test?${params}`, { method: "POST", body: "" })); S.test = st; syncTest(); toast(st.test ? "Тестовий режим: усе є, збереження не пишуться" : "Тестовий режим вимкнено, сейв як був"); }
+  catch (e) { toast("Не вдалося: " + e.message); }
+}
+function syncTest() { const t = S.test || {}; $("testMode").checked = !!t.test; $("noclip").checked = !!t.noclip; $("noclip").disabled = !t.test; }
+
 /* ===== Wiring ===== */
 for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
 for (const b of document.querySelectorAll("[data-layer]")) b.onclick = () => setLayers(+b.dataset.layer);
@@ -1539,20 +1577,27 @@ $("openBtn").onclick = () => pickFile("open"); $("mergeBtn").onclick = () => pic
 $("mergeMine").onclick = () => finishMerge(false); $("mergeTheirs").onclick = () => finishMerge(true);
 $("helpBtn").onclick = () => $("helpDlg").showModal();
 $("vrBtn").onclick = vrStart;
+$("testMode").onchange = () => setTest(`on=${$("testMode").checked ? 1 : 0}`);
+$("noclip").onchange = () => setTest(`noclip=${$("noclip").checked ? 1 : 0}`);
+for (const b of document.querySelectorAll("[data-check]")) b.onclick = () => toggle(b.dataset.check);
 $("buildBtn").onclick = () => { $("buildInput").value = ""; $("buildInput").click(); };
 $("buildInput").addEventListener("change", () => { const f = $("buildInput").files[0]; if (f) uploadBuild(f); });
 $("roomSearch").addEventListener("input", renderRoomTree);
-for (const id of ["showBottom", "showTop", "showSprites", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", draw);
+for (const id of ["showBottom", "showTop", "showSprites", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", () => { syncToggles(); draw(); });
 $("showAuto").addEventListener("change", () => { recompute(); updateSelInfo(); draw(); });
 $("areaBtn").onclick = () => toggleArea();
-$("crawlAreaBtn").onclick = () => { const a = S.room ? S.room.area : S.status ? S.status.area : 0; crawl(S.rooms.filter(r => r.area === a)); };
-$("crawlAllBtn").onclick = () => crawl(S.rooms);
+$("crawlAreaBtn").onclick = () => {
+  if (!crawling && !confirm("Лінк по черзі відвідає кожну кімнату цієї області, а редактор збереже їх (для мапи області й роботи без консолі). Наприкінці Лінк повернеться сюди. Почати?")) return; const a = S.room ? S.room.area : S.status ? S.status.area : 0; crawl(S.rooms.filter(r => r.area === a)); };
+$("crawlAllBtn").onclick = () => {
+  if (!crawling && !confirm("Лінк по черзі відвідає всі ~600 кімнат гри (кілька десятків хвилин), а редактор збереже їх. Зупинити — натиснути кнопку ще раз. Почати?")) return;
+  crawl(S.rooms);
+};
 $("liveOn").addEventListener("change", () => { $("live").classList.toggle("open", $("liveOn").checked); if ($("liveOn").checked) liveTick(); });
 window.addEventListener("resize", resize);
 setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */
 
 (async function init() {
-  setTool("rect"); setLayers(LAYER_BOTH); buildLegend(); resize();
+  setTool("rect"); setLayers(LAYER_BOTH); buildLegend(); syncToggles(); resize();
   $("addr").value = localStorage.getItem("tmc-addr") || "localhost";
   /* Opened from the console itself (http://console:8333/): that is the address. */
   const servedByConsole = location.protocol === "http:" && location.port === String(PORT);

@@ -21,7 +21,7 @@ void Port_TTS_Stop(void) {}
 bool Port_TTS_GetEnabled(void) { return false; }
 
 bool Port_AudioMute_ShouldSuppress(unsigned int soundRequest) { (void)soundRequest; return false; }
-int Port_Debug_NoclipEnabled(void) { return 0; }
+/* Port_Debug_NoclipEnabled: port/port_debug_actions.c (the PC editor test mode). */
 
 static uint64_t sNextAutosaveMs;
 
