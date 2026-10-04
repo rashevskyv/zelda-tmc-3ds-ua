@@ -55,8 +55,6 @@ static Tex3DS_SubTexture sTopSubtexture;
 static C3D_Tex* sEditorTexture;
 static float sEditorTexelX, sEditorTexelY;
 static uint32_t sEditorFrame;
-/* Blinks the PC editor's highlight on the top screen. */
-static unsigned sFrameCounterForBlink;
 /* The PC editor's copy of both eyes (GET /frame): asked for, queued as a
  * transfer after a frame's draws, readable a couple of frames later. */
 static uint16_t* sEyeCopy[2];
@@ -837,7 +835,7 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
     }
     if (configureAbgr) ConfigureAbgrTextureEnv();
 
-    /* The cells the PC editor points at, framed over the game picture. */
+    /* The outline of the cells the PC editor points at, over the picture. */
     {
         static float rects[150][4];
         const int count = PortStereoLink_Highlight(rects, 150);
@@ -847,7 +845,7 @@ static void DrawTopTexture(C3D_Tex* texture, unsigned width, bool configureAbgr)
             C2D_SceneBegin(sTopDraw);
             const float sx = params.pos.w / (float)presentation->sourceWidth;
             const float sy = params.pos.h / (float)presentation->sourceHeight;
-            const u32 colour = C2D_Color32(0, 230, 255, (sFrameCounterForBlink++ / 10) & 1 ? 170 : 70);
+            const u32 colour = C2D_Color32(0, 230, 255, 230); /* a steady outline: blinking distracts */
             for (int i = 0; i < count; ++i) {
                 C2D_DrawRectSolid(params.pos.x + (rects[i][0] - (float)presentation->sourceX) * sx,
                                   params.pos.y + (rects[i][1] - (float)presentation->sourceY) * sy, 0.5f,

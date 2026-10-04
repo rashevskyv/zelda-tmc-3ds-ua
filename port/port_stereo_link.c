@@ -26,6 +26,9 @@
  *        correction; u8 pad   (12 bytes each)
  *      "OAMS", u16 DISPCNT, u16 0, OAM[0x400] (screen coordinates at the
  *        camera above), OBJ tiles[0x8000], OBJ palette u16[256]
+ *      "OAMX" (none or more, from POST /sweep): s16 scrollX, scrollY, u16
+ *        DISPCNT, u16 0, OAM[0x400], OBJ tiles[0x8000] -- the sprites at one
+ *        stop of a camera tour of the room
  *      "RIDX", u16 drawIndex[2][64*64]: the tile set entry each map tile is
  *        drawn with (special tiles resolved)
  */
@@ -170,6 +173,7 @@ static struct {
     u8 row, col0, col1;
 } sHighlight[MAX_HIGHLIGHT];
 static int sHighlightCount;
+static u8 sHighlightMask[SIDE * SIDE];
 
 void PortStereoLink_SetEnabled(bool enabled) {
     sEnabled = enabled;
@@ -250,6 +254,118 @@ static bool LinkStart(void) {
     }
     SetNonBlocking(sListen);
     return true;
+}
+
+/* ---- A camera tour: sprites of the whole room ----
+ * The OAM only holds what is on screen. POST /sweep walks the camera over
+ * the room -- Link stays where he is: the camera follows a stand-in target --
+ * and keeps the sprites seen at each stop; /room then sends them all. */
+enum { MAX_SWEEP = 40, SWEEP_SETTLE = 8, SWEEP_GIVE_UP = 90 };
+typedef struct {
+    s16 scrollX, scrollY;
+    u16 dispcnt;
+    u16 oam[0x200];
+    u8 objVram[0x8000];
+} SweepShot;
+static struct {
+    bool active;
+    int room; /* area << 8 | room of the shots */
+    int count, next, waited;
+    s16 targets[MAX_SWEEP][2];
+    Entity* savedTarget;
+    u8 savedSpeed;
+    SweepShot* shots[MAX_SWEEP];
+    int shotCount;
+} sSweep;
+static Entity sSweepTarget;
+
+static void SweepFree(void) {
+    for (int i = 0; i < sSweep.shotCount; ++i) {
+        free(sSweep.shots[i]);
+        sSweep.shots[i] = NULL;
+    }
+    sSweep.shotCount = 0;
+}
+
+static void SweepEnd(void) {
+    if (sSweep.active) {
+        gRoomControls.camera_target = sSweep.savedTarget;
+        gRoomControls.scrollSpeed = sSweep.savedSpeed;
+        sSweep.active = false;
+    }
+}
+
+static bool SweepStart(void) {
+    if (!InGame() || gRoomControls.scrollAction > 1 || sSweep.active) {
+        return false;
+    }
+    SweepFree();
+    sSweep.room = (gRoomControls.area << 8) | gRoomControls.room;
+    sSweep.count = 0;
+    /* Camera centres a screen less a margin apart, ends included. */
+    const int w = gRoomControls.width, h = gRoomControls.height;
+    for (int cy = 80;; cy += 140) {
+        const int y = cy + 80 > h ? h - 80 : cy;
+        for (int cx = 120;; cx += 210) {
+            const int x = cx + 120 > w ? w - 120 : cx;
+            if (sSweep.count < MAX_SWEEP) {
+                sSweep.targets[sSweep.count][0] = (s16)(gRoomControls.origin_x + (x < 120 ? 120 : x));
+                sSweep.targets[sSweep.count][1] = (s16)(gRoomControls.origin_y + (y < 80 ? 80 : y));
+                ++sSweep.count;
+            }
+            if (cx + 120 >= w) {
+                break;
+            }
+        }
+        if (cy + 80 >= h) {
+            break;
+        }
+    }
+    sSweep.next = 0;
+    sSweep.waited = 0;
+    sSweep.savedTarget = gRoomControls.camera_target;
+    sSweep.savedSpeed = gRoomControls.scrollSpeed;
+    gRoomControls.scrollSpeed = 0x40;
+    sSweep.active = true;
+    return true;
+}
+
+static void SweepTick(void) {
+    if (!sSweep.active) {
+        return;
+    }
+    if (!InGame() || ((gRoomControls.area << 8) | gRoomControls.room) != sSweep.room) {
+        SweepEnd();
+        return;
+    }
+    sSweepTarget.x.HALF.HI = sSweep.targets[sSweep.next][0];
+    sSweepTarget.y.HALF.HI = sSweep.targets[sSweep.next][1];
+    gRoomControls.camera_target = &sSweepTarget;
+    gRoomControls.scrollSpeed = 0x40;
+    const int wantX = sSweep.targets[sSweep.next][0] - 120, wantY = sSweep.targets[sSweep.next][1] - 80;
+    const bool there = (gRoomControls.scroll_x == wantX || gRoomControls.scroll_x == gRoomControls.origin_x ||
+                        gRoomControls.scroll_x == gRoomControls.origin_x + gRoomControls.width - 240) &&
+                       (gRoomControls.scroll_y == wantY || gRoomControls.scroll_y == gRoomControls.origin_y ||
+                        gRoomControls.scroll_y == gRoomControls.origin_y + gRoomControls.height - 160);
+    ++sSweep.waited;
+    if (!(there && sSweep.waited >= SWEEP_SETTLE) && sSweep.waited < SWEEP_GIVE_UP) {
+        return;
+    }
+    SweepShot* shot = malloc(sizeof(SweepShot));
+    if (shot != NULL && sSweep.shotCount < MAX_SWEEP) {
+        shot->scrollX = gRoomControls.scroll_x;
+        shot->scrollY = gRoomControls.scroll_y;
+        shot->dispcnt = (u16)(gIoMem[0] | (gIoMem[1] << 8));
+        memcpy(shot->oam, gOamMem, sizeof(shot->oam));
+        memcpy(shot->objVram, gVram + 0x10000, sizeof(shot->objVram));
+        sSweep.shots[sSweep.shotCount++] = shot;
+    } else {
+        free(shot);
+    }
+    sSweep.waited = 0;
+    if (++sSweep.next >= sSweep.count) {
+        SweepEnd();
+    }
 }
 
 /* ---- Answers ---- */
@@ -381,7 +497,7 @@ static void AnswerStatus(Client* client) {
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
          "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
-         "\"hudMax\":%u}",
+         "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -391,7 +507,7 @@ static void AnswerStatus(Client* client) {
          PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false",
          gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
          sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
-         gSave.stats.maxHealth, gHUD.maxHealth);
+         gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room);
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -532,6 +648,19 @@ static void AnswerRoom(Client* client) {
     Put(&b, gOamMem, 0x400);
     Put(&b, gVram + 0x10000, 0x8000);
     Put(&b, gPaletteBuffer + 256, 0x200);
+    /* The camera tour's sprites, for this room. */
+    if (!sSweep.active && sSweep.room == ((gRoomControls.area << 8) | gRoomControls.room)) {
+        for (int i = 0; i < sSweep.shotCount; ++i) {
+            const SweepShot* shot = sSweep.shots[i];
+            Put(&b, "OAMX", 4);
+            PutU16(&b, (unsigned)shot->scrollX);
+            PutU16(&b, (unsigned)shot->scrollY);
+            PutU16(&b, shot->dispcnt);
+            PutU16(&b, 0);
+            Put(&b, shot->oam, sizeof(shot->oam));
+            Put(&b, shot->objVram, sizeof(shot->objVram));
+        }
+    }
     /* What each map tile is drawn with: special tiles (0x4000 and up) are
      * not plain tile set entries. */
     Put(&b, "RIDX", 4);
@@ -676,6 +805,7 @@ static void AnswerSelect(Client* client, const char* query, const char* body, si
     const int room = QueryInt(query, "room", gRoomControls.room);
     sHighlightCount = 0;
     sHighlightRoom = (area << 8) | room;
+    memset(sHighlightMask, 0, sizeof(sHighlightMask));
     if (bodyLength == 0) {
         PortStereoEditor_ClearSelection(area, room);
     }
@@ -693,6 +823,7 @@ static void AnswerSelect(Client* client, const char* query, const char* body, si
                     PortStereoEditor_ClearSelection(area, room);
                 }
                 PortStereoEditor_SelectRun(area, room, (int)row, (int)col0, (int)col1);
+                memset(&sHighlightMask[row * SIDE + col0], 1, col1 - col0 + 1);
                 sHighlight[sHighlightCount].row = (u8)row;
                 sHighlight[sHighlightCount].col0 = (u8)col0;
                 sHighlight[sHighlightCount].col1 = (u8)col1;
@@ -704,24 +835,64 @@ static void AnswerSelect(Client* client, const char* query, const char* body, si
     RespondText(client, 200, "ok");
 }
 
+static bool Highlighted(int col, int row) {
+    return col >= 0 && row >= 0 && col < SIDE && row < SIDE && sHighlightMask[row * SIDE + col];
+}
+
+/* The outline of the cells the PC editor points at, as one-pixel lines in
+ * GBA screen coordinates {x, y, w, h}: runs of cell edges joined. */
 int PortStereoLink_Highlight(float (*rects)[4], int max) {
-    if (!sEnabled || sHighlightRoom != ((gRoomControls.area << 8) | gRoomControls.room) || !InGame()) {
+    if (!sEnabled || sHighlightCount == 0 || sHighlightRoom != ((gRoomControls.area << 8) | gRoomControls.room) ||
+        !InGame()) {
         return 0;
     }
     const int x0 = (int)gRoomControls.origin_x - (int)gRoomControls.scroll_x;
     const int y0 = (int)gRoomControls.origin_y - (int)gRoomControls.scroll_y;
+    const int col0 = (-x0) >> 3, row0 = (-y0) >> 3, col1 = col0 + 31, row1 = row0 + 21;
     int n = 0;
-    for (int i = 0; i < sHighlightCount && n < max; ++i) {
-        const float x = (float)(x0 + sHighlight[i].col0 * 8), y = (float)(y0 + sHighlight[i].row * 8);
-        const float w = (float)((sHighlight[i].col1 - sHighlight[i].col0 + 1) * 8);
-        if (x + w <= 0.0f || x >= 240.0f || y + 8.0f <= 0.0f || y >= 160.0f) {
-            continue;
+    /* Top and bottom edges, joined along each row. */
+    for (int row = row0; row <= row1 && n < max; ++row) {
+        for (int side = 0; side < 2; ++side) {
+            const int other = side ? row + 1 : row - 1;
+            for (int col = col0; col <= col1 && n < max;) {
+                if (!(Highlighted(col, row) && !Highlighted(col, other))) {
+                    ++col;
+                    continue;
+                }
+                int end = col;
+                while (end + 1 <= col1 && Highlighted(end + 1, row) && !Highlighted(end + 1, other)) {
+                    ++end;
+                }
+                rects[n][0] = (float)(x0 + col * 8);
+                rects[n][1] = (float)(y0 + row * 8 + (side ? 7 : 0));
+                rects[n][2] = (float)((end - col + 1) * 8);
+                rects[n][3] = 1.0f;
+                ++n;
+                col = end + 1;
+            }
         }
-        rects[n][0] = x;
-        rects[n][1] = y;
-        rects[n][2] = w;
-        rects[n][3] = 8.0f;
-        ++n;
+    }
+    /* Left and right edges, joined down each column. */
+    for (int col = col0; col <= col1 && n < max; ++col) {
+        for (int side = 0; side < 2; ++side) {
+            const int other = side ? col + 1 : col - 1;
+            for (int row = row0; row <= row1 && n < max;) {
+                if (!(Highlighted(col, row) && !Highlighted(other, row))) {
+                    ++row;
+                    continue;
+                }
+                int end = row;
+                while (end + 1 <= row1 && Highlighted(col, end + 1) && !Highlighted(other, end + 1)) {
+                    ++end;
+                }
+                rects[n][0] = (float)(x0 + col * 8 + (side ? 7 : 0));
+                rects[n][1] = (float)(y0 + row * 8);
+                rects[n][2] = 1.0f;
+                rects[n][3] = (float)((end - row + 1) * 8);
+                ++n;
+                row = end + 1;
+            }
+        }
     }
     return n;
 }
@@ -820,6 +991,8 @@ static void Answer(Client* client) {
         snprintf(text, sizeof(text), "{\"test\":%s,\"noclip\":%s}", sTestMode ? "true" : "false",
                  Port_DebugQuery_Noclip() ? "true" : "false");
         Respond(client, 200, "application/json", text, strlen(text));
+    } else if (post && strcmp(target, "/sweep") == 0) {
+        RespondText(client, SweepStart() ? 202 : 409, sSweep.active ? "sweeping" : "not now");
     } else if (post && strcmp(target, "/remove") == 0) {
         /* An old test build off the card; never the one running (romfs). */
         char name[64] = { 0 }, path[96];
@@ -1018,6 +1191,7 @@ static void PendingGotoTick(void) {
 
 void PortStereoLink_Tick(void) {
     ++sFrame;
+    SweepTick();
     if (sTestMode) {
         if (!sEnabled) {
             SetTestMode(false);

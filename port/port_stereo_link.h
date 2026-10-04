@@ -29,6 +29,8 @@
  *                                    "row col0 col1" lines, empty to clear
  *   POST /save                       write stereo_edits.txt
  *   POST /file?name=x.3dsx           a new build into sdmc:/3ds/ (3DSX only)
+ *   POST /sweep                      tour the room with the camera (Link stays)
+ *                                    so /room carries every sprite of it
  *   POST /remove?name=x.3dsx         delete an old build from sdmc:/3ds/
  *   POST /test?on=0|1&noclip=0|1     test mode: every item, full hearts, no
  *                                    saves written; ends (and restores the
@@ -65,8 +67,8 @@ bool PortStereoLink_RoomSize(int area, int room, int* width, int* height);
 /* Whether the game must not write its save (test mode). Any thread. */
 bool PortStereoLink_SavesBlocked(void);
 
-/* The cells the PC editor points at, as GBA screen rectangles {x, y, w, h};
- * returns how many. Main thread. */
+/* The outline of the cells the PC editor points at, as one-pixel GBA screen
+ * rectangles {x, y, w, h}; returns how many. Main thread. */
 int PortStereoLink_Highlight(float (*rects)[4], int max);
 
 /* Platform: a copy of both eyes' game pictures, RGBA5551, asked for and

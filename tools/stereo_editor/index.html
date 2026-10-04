@@ -80,6 +80,12 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
 #live.open { display: block; }
 #live canvas { display: block; image-rendering: pixelated; }
 #live .row { margin: 0 0 4px; }
+#ctxMenu { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; min-width: 260px; }
+#ctxMenu.open { display: block; }
+#ctxMenu div { padding: 6px 10px; border-radius: 5px; cursor: pointer; }
+#ctxMenu div:hover { background: var(--panel2); }
+#ctxMenu div.sep { height: 1px; padding: 0; margin: 4px 0; background: var(--line); cursor: default; }
+#ctxMenu div .k { float: right; color: var(--dim); margin-left: 16px; }
 #toast { position: fixed; right: 16px; bottom: 40px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
 #toast div { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
 </style>
@@ -144,7 +150,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <button data-tool="entity" title="Спрайти: клік — вибрати об'єкт (E)">☺<small>E</small></button>
         <button data-tool="pan" title="Рука: рухати вигляд (H, або права кнопка миші)">✋<small>H</small></button>
       </div>
-      <div class="row small muted" style="margin-top:6px">Shift — додати до виділення, Alt — відняти.<br><b>Ctrl+клік</b> — перенести Лінка в цю клітинку (і у вигляді області — в будь-яку кімнату).</div>
+      <div class="row small muted" style="margin-top:6px">Shift — додати до виділення (почніть на виділеному — зніметься), Alt — відняти.<br><b>Ctrl+клік</b> — перенести Лінка в цю клітинку (і у вигляді області — в будь-яку кімнату).</div>
       <div class="row" id="brushRow">Пензель <select id="brushSize"><option value="1">1×1</option><option value="2">2×2</option><option value="3">3×3</option><option value="4">4×4</option></select>
         <label title="Паличка порівнює плитки, а не висоти"><input type="checkbox" id="wandTile"> паличка за плиткою</label></div>
     </div>
@@ -219,6 +225,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
 </footer>
 </div>
 <div id="toast"></div>
+<div id="ctxMenu"></div>
 <dialog id="helpDlg">
   <h2>Як користуватися</h2>
   <p>Кожна кімната складається з клітинок 8×8 у двох шарах мапи. Висота клітинки — у одиницях стерео (1 = 1 піксель різниці між очима на середній силі). Гра рахує висоти сама; тут ви їх виправляєте. Зміни одразу йдуть на консоль і видно в 3D.</p>
@@ -227,7 +234,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <tr><td><kbd>I</kbd> <kbd>E</kbd> <kbd>H</kbd></td><td>піпетка висоти, вибір спрайтів, рука</td></tr>
     <tr><td><kbd>Ctrl</kbd>+клік</td><td>перенести Лінка в цю клітинку, хоч би куди; у вигляді області — в будь-яке місце будь-якої кімнати</td></tr>
     <tr><td><kbd>Ctrl+C</kbd> <kbd>Ctrl+V</kbd></td><td>копіювати висоти виділеного / вставити під курсором (і в іншій кімнаті)</td></tr>
-    <tr><td>Shift / Alt</td><td>додати до виділення / відняти</td></tr>
+    <tr><td>Shift / Alt</td><td>додати до виділення / відняти; Shift, почате на виділеній клітинці, теж віднімає</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd> або <kbd>+</kbd> <kbd>−</kbd></td><td>вище / нижче на 1</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>поставити висоту з поля</td></tr>
     <tr><td><kbd>A</kbd></td><td>вирівняти до найнижчої</td></tr>
@@ -235,7 +242,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>шар: обидва / нижній / верхній</td></tr>
     <tr><td><kbd>M</kbd></td><td>вигляд області: усі кімнати на мапі; клік відкриває кімнату</td></tr>
     <tr><td><kbd>G</kbd> <kbd>C</kbd> <kbd>P</kbd> <kbd>V</kbd></td><td>сітка, кольори, 3D-перегляд, живий кадр консолі</td></tr>
-    <tr><td>Колесо / права кнопка</td><td>масштаб / рухати вигляд</td></tr>
+    <tr><td>Колесо / права кнопка</td><td>масштаб / рухати вигляд (утримуючи); клік правою — меню: «виділити всі такі», правило, вирівняти…</td></tr>
     <tr><td><kbd>Ctrl+Z</kbd> <kbd>Ctrl+Y</kbd> <kbd>Ctrl+A</kbd> <kbd>Ctrl+S</kbd> <kbd>Esc</kbd></td><td>скасувати, повторити (також Ctrl+Shift+Z), виділити все, зберегти на консолі, зняти виділення. Працюють на будь-якій розкладці.</td></tr>
   </table>
   <p><b>Правила плиток</b> — найшвидший шлях: виділіть, наприклад, дерево, і «Правило: = 2» підніме всі такі дерева в грі. Для винятків правте клітинки кімнати.</p>
@@ -390,6 +397,15 @@ function parseRoom(buf) {
     r.objVram = new Uint8Array(buf.slice(off, off + 0x8000)); off += 0x8000;
     r.objPalette = new Uint16Array(buf.slice(off, off + 0x200)); off += 0x200;
   }
+  /* The camera tour's stops (POST /sweep): sprites of the rest of the room. */
+  r.shots = [];
+  while (off + 12 + 0x400 + 0x8000 <= buf.byteLength && String.fromCharCode(u8[off], u8[off + 1], u8[off + 2], u8[off + 3]) === "OAMX") {
+    const shot = { scrollX: dv.getInt16(off + 4, true), scrollY: dv.getInt16(off + 6, true), dispcnt: dv.getUint16(off + 8, true) };
+    off += 12;
+    shot.oam = new Uint16Array(buf.slice(off, off + 0x400)); off += 0x400;
+    shot.objVram = new Uint8Array(buf.slice(off, off + 0x8000)); off += 0x8000;
+    r.shots.push(shot);
+  }
   if (off + 4 + 2 * 8192 <= buf.byteLength && String.fromCharCode(u8[off], u8[off + 1], u8[off + 2], u8[off + 3]) === "RIDX") {
     off += 4;
     r.drawIndex = [new Uint16Array(buf.slice(off, off + 8192)), new Uint16Array(buf.slice(off + 8192, off + 16384))]; off += 16384;
@@ -430,10 +446,16 @@ function renderSprites(r) {
   const out = [0, 1, 2, 3].map(() => { const c = document.createElement("canvas"); c.width = r.width; c.height = r.height; return c; });
   if (!r.oam) return out;
   const images = out.map(c => c.getContext("2d").createImageData(r.width, r.height));
-  const pal = [...r.objPalette].map(rgb555), oneD = (r.dispcnt & 0x40) !== 0;
-  const camX = r.scrollX - r.originX, camY = r.scrollY - r.originY;
+  /* The tour's stops first, the current frame last (it is the freshest). */
+  for (const shot of [...(r.shots || []), { oam: r.oam, objVram: r.objVram, dispcnt: r.dispcnt, scrollX: r.scrollX, scrollY: r.scrollY }])
+    drawOam(r, shot, images);
+  return out.map((c, p) => { c.getContext("2d").putImageData(images[p], 0, 0); return c; });
+}
+function drawOam(r, shot, images) {
+  const pal = [...r.objPalette].map(rgb555), oneD = (shot.dispcnt & 0x40) !== 0;
+  const camX = shot.scrollX - r.originX, camY = shot.scrollY - r.originY;
   for (let i = 127; i >= 0; --i) {
-    const a0 = r.oam[i * 4], a1 = r.oam[i * 4 + 1], a2 = r.oam[i * 4 + 2];
+    const a0 = shot.oam[i * 4], a1 = shot.oam[i * 4 + 1], a2 = shot.oam[i * 4 + 2];
     const affine = (a0 & 0x100) !== 0, doubleSize = (a0 & 0x200) !== 0;
     if (!affine && doubleSize) continue; /* hidden */
     const gfx = (a0 >> 10) & 3; if (gfx === 2 || gfx === 3) continue; /* window, prohibited */
@@ -450,8 +472,8 @@ function renderSprites(r) {
       const sx = hf ? w - 1 - px : px, sy = vf ? h - 1 - py : py;
       const t = oneD ? tile + ((sy >> 3) * (w >> 3) + (sx >> 3)) * step : tile + (sy >> 3) * 32 + (sx >> 3) * step;
       let ci;
-      if (c256) { ci = r.objVram[(t * 32 + (sy & 7) * 8 + (sx & 7)) & 0x7fff]; }
-      else { const b = r.objVram[(t * 32 + (sy & 7) * 4 + ((sx & 7) >> 1)) & 0x7fff]; ci = (sx & 1) ? b >> 4 : b & 15; }
+      if (c256) { ci = shot.objVram[(t * 32 + (sy & 7) * 8 + (sx & 7)) & 0x7fff]; }
+      else { const b = shot.objVram[(t * 32 + (sy & 7) * 4 + ((sx & 7) >> 1)) & 0x7fff]; ci = (sx & 1) ? b >> 4 : b & 15; }
       if (!ci) continue;
       const rx = camX + x + px, ry = camY + y + py;
       if (rx < 0 || ry < 0 || rx >= r.width || ry >= r.height) continue;
@@ -460,7 +482,6 @@ function renderSprites(r) {
     }
   }
   /* Entries go from 127 to 0, so the lower index -- the nearer -- wins. */
-  return out.map((c, p) => { c.getContext("2d").putImageData(images[p], 0, 0); return c; });
 }
 /* Backgrounds and sprites stacked as the GBA does: priority 3 first; at one
  * priority the bottom map, the top map, then sprites. */
@@ -584,8 +605,31 @@ async function loadCurrentRoom() {
     if (ents) room.entities = ents;
     showRoom(room);
     S.lastRev = S.status ? S.status.rev : -1;
+    if ((room.width > 240 || room.height > 160) && !room.shots.length && !crawling) sweepRoom(room);
   } catch (e) { toast("Кімната не завантажилась: " + e.message); }
   S.followBusy = false;
+}
+/* The console only has the sprites on screen: let its camera tour the room
+ * (Link stays put) and take the room again with all of them. */
+async function sweepRoom(room) {
+  const key = (room.area << 8) | room.room;
+  try {
+    await api("/sweep", { method: "POST", body: "" });
+    $("pending").textContent = "консоль оглядає кімнату камерою, щоб зібрати всі спрайти…";
+    for (let i = 0; i < 120; ++i) {
+      await new Promise(r => setTimeout(r, 250));
+      const st = await api("/status", { json: true });
+      if (st.area !== room.area || st.room !== room.room) return;
+      if (!st.sweep && st.sweepRoom === key) break;
+    }
+    const buf = await api("/room", { binary: true, timeout: 20000 });
+    const full = parseRoom(buf);
+    if (full.area !== room.area || full.room !== room.room) return;
+    dbPut("rooms", roomKey(full.area, full.room), buf); areaCache.delete(roomKey(full.area, full.room));
+    full.entities = S.room && S.room.entities ? S.room.entities : full.entities;
+    if (S.room && S.room.area === full.area && S.room.room === full.room) showRoom(full);
+    $("pending").textContent = `спрайти всієї кімнати: ${full.shots.length} ділянок`;
+  } catch (e) { $("pending").textContent = "огляд кімнати не вдався: " + e.message; }
 }
 async function gotoRoom(area, room) {
   const k = roomKey(area, room);
@@ -1108,6 +1152,58 @@ function pasteAtHover() {
   toast(`Вставлено ${pasted.length} клітинок`);
 }
 
+/* ===== "All such" and the right-click menu ===== */
+function drawIndexAt(L, tile) { const r = S.room; return r.drawIndex ? r.drawIndex[L][tile] : r.layers[L].map[tile] & 2047; }
+/* Every cell of the room showing one of the tiles the given cells show, on
+ * the layers being edited; empty tiles do not count. */
+function sameTilesAs(cells) {
+  const r = S.room, keys = [new Set(), new Set()];
+  for (const i of cells) {
+    const col = i % SIDE, row = (i / SIDE) | 0, tile = (col >> 1) | ((row >> 1) << 6);
+    for (let L = 0; L < 2; ++L) if ((S.layers & (1 << L)) && r.bg[L] && drawIndexAt(L, tile) !== 0 && r.hash[L][tile]) keys[L].add(r.hash[L][tile]);
+  }
+  const out = [];
+  for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) {
+    const tile = (col >> 1) | ((row >> 1) << 6);
+    for (let L = 0; L < 2; ++L) if (keys[L].size && drawIndexAt(L, tile) !== 0 && keys[L].has(r.hash[L][tile])) { out.push(row * SIDE + col); break; }
+  }
+  return out;
+}
+function closeMenu() { $("ctxMenu").classList.remove("open"); }
+function openMenu(x, y, cell) {
+  if (!S.room) return;
+  const onCell = cell && inRoom(cell.col, cell.row), cellIndex = onCell ? cell.row * SIDE + cell.col : -1;
+  const source = S.selCount ? selectedCells() : onCell ? [cellIndex] : [];
+  const items = [];
+  if (source.length) {
+    items.push(["Виділити всі такі в кімнаті", "T+клік", () => applySel(sameTilesAs(source), "replace")]);
+    items.push(["Додати всі такі до виділення", "", () => applySel(sameTilesAs(source), "add")]);
+  }
+  if (S.selCount) {
+    items.push(null);
+    items.push([`Правило для всіх таких у грі: висота = ${$("setValue").value}`, "", () => ruleFromSel(true)]);
+    items.push(["Прибрати правила цих плиток", "", () => ruleDelSel()]);
+    items.push(null);
+    items.push(["Вирівняти до найнижчої", "A", () => levelSel()]);
+    items.push(["Скинути правки виділеного", "X", () => resetSel()]);
+    items.push(["Зняти виділення", "Esc", () => { applySel([], "replace"); }]);
+  }
+  if (onCell) { items.push(null); items.push(["Перенести Лінка сюди", "Ctrl+клік", () => teleport(S.room.area, S.room.room, cell.col * 8 + 4, cell.row * 8 + 6)]); }
+  if (!items.length) return;
+  const menu = $("ctxMenu"); menu.innerHTML = "";
+  for (const it of items) {
+    const d = document.createElement("div");
+    if (!it) { d.className = "sep"; menu.append(d); continue; }
+    d.innerHTML = `${it[0]}<span class="k">${it[1]}</span>`;
+    d.onclick = () => { closeMenu(); it[2](); };
+    menu.append(d);
+  }
+  menu.style.left = Math.min(x, window.innerWidth - 300) + "px"; menu.style.top = Math.min(y, window.innerHeight - 40 - items.length * 30) + "px";
+  menu.classList.add("open");
+}
+window.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenu(); }, true);
+window.addEventListener("blur", closeMenu);
+
 /* ===== Undo ===== */
 function undo() { if (!S.undo.length || !S.room) return; const s = S.undo.pop(); S.redo.push(S.edits.snapshot(s.a, s.r)); S.edits.restore(s); markAllDirty(s); }
 function redo() { if (!S.redo.length || !S.room) return; const s = S.redo.pop(); S.undo.push(S.edits.snapshot(s.a, s.r)); S.edits.restore(s); markAllDirty(s); }
@@ -1128,8 +1224,11 @@ view.addEventListener("mousedown", ev => {
   }
   if (!S.room) return;
   const rect = view.getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top, c = toCell(mx, my);
-  if (ev.button === 2 || ev.button === 1 || S.tool === "pan" || S.spaceDown) { S.drag = { type: "pan", sx: mx, sy: my, px: S.panX, py: S.panY }; return; }
-  const mode = selModeOf(ev);
+  closeMenu();
+  if (ev.button === 2 || ev.button === 1 || S.tool === "pan" || S.spaceDown) { S.drag = { type: "pan", sx: mx, sy: my, px: S.panX, py: S.panY, button: ev.button, cell: c, cx: ev.clientX, cy: ev.clientY }; return; }
+  /* Shift adds, or takes away when the stroke starts on a selected cell. */
+  let mode = selModeOf(ev);
+  if (mode === "add" && inRoom(c.col, c.row) && S.selection[c.row * SIDE + c.col]) mode = "sub";
   if (S.tool === "entity") {
     let best = null, bd = 1e9;
     for (const en of S.room.entities || []) { if (en.kind === 9) continue; const ey = en.y + Math.min(en.z || 0, 0); if (c.x < en.x - 10 || c.x > en.x + 10 || c.y < ey - 22 || c.y > ey + 4) continue; const d = (c.x - en.x) ** 2 + (c.y - ey + 8) ** 2; if (d < bd) { bd = d; best = en; } }
@@ -1142,7 +1241,7 @@ view.addEventListener("mousedown", ev => {
     return;
   }
   if (S.tool === "pick") { const h = cellHeight(c.row * SIDE + c.col); $("setValue").value = h; toast(`Висота ${h}`); return; }
-  if (S.tool === "tile") { applySel(sameTileCells(c), mode); return; }
+  if (S.tool === "tile") { applySel(sameTilesAs([c.row * SIDE + c.col]), mode); return; }
   if (S.tool === "wand") { applySel(wandCells(c), mode); return; }
   if (S.tool === "rect") {
     S.drag = { type: "rect", start: c, end: c, mode, preview() { const cells = rectCells(this.start, this.end); ctx.strokeStyle = "#ffe628"; ctx.lineWidth = 1.5 / S.zoom; const x0 = Math.min(this.start.col, this.end.col), y0 = Math.min(this.start.row, this.end.row); ctx.strokeRect(Math.max(0, x0) * 8, Math.max(0, y0) * 8, (Math.abs(this.end.col - this.start.col) + 1) * 8, (Math.abs(this.end.row - this.start.row) + 1) * 8); void cells; } };
@@ -1178,6 +1277,8 @@ window.addEventListener("mousemove", ev => {
 });
 window.addEventListener("mouseup", () => {
   const d = S.drag; S.drag = null; if (!d || d.type === "areapan") return;
+  /* A right click that did not move the view: the menu. */
+  if (d.type === "pan" && d.button === 2 && Math.abs(S.panX - d.px) < 4 && Math.abs(S.panY - d.py) < 4) { openMenu(d.cx, d.cy, d.cell); return; }
   if (d.type === "rect") applySel(rectCells(d.start, d.end), d.mode);
   else if (d.type === "lasso") applySel(lassoCells(d.points), d.mode);
   else if (d.type === "brush") { scheduleSelectPush(); updateSelInfo(); }
@@ -1404,6 +1505,11 @@ async function gotoRoomQuiet(area, room) {
     const st = await api("/status", { json: true });
     if (st.area === area && st.room === room && !st.transition && st.inGame && !st.fade) {
       await new Promise(res => setTimeout(res, 300));
+      const size = S.rooms.find(x => x.area === area && x.room === room);
+      if (size && (size.w > 240 || size.h > 160)) {
+        await api("/sweep", { method: "POST", body: "" }).catch(() => {});
+        for (let j = 0; j < 120; ++j) { await new Promise(res => setTimeout(res, 250)); const s2 = await api("/status", { json: true }); if (!s2.sweep) break; }
+      }
       const buf = await api("/room", { binary: true, timeout: 20000 });
       const k = roomKey(area, room);
       dbPut("rooms", k, buf); cachedRooms.add(k); areaCache.delete(k);
