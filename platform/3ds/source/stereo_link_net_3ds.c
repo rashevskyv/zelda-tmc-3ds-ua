@@ -72,11 +72,14 @@ int PortStereoLink_Relaunch(const char* name) {
     if (!envIsHomebrew()) return 409;
     Handle hbldr;
     if (R_FAILED(srvGetServiceHandle(&hbldr, "hb:ldr"))) return 409;
-    /* argv as the launcher passes it: argc, then the strings one after another. */
+    /* argv as the launcher passes it: argc, then the strings one after
+     * another; the second asks the new build to start its link. */
     static u32 argv[64];
     memset(argv, 0, sizeof(argv));
-    argv[0] = 1;
-    snprintf((char*)&argv[1], sizeof(argv) - sizeof(u32), "%s", full);
+    argv[0] = 2;
+    char* strings = (char*)&argv[1];
+    const int n = snprintf(strings, sizeof(argv) - sizeof(u32), "%s", full);
+    snprintf(strings + n + 1, sizeof(argv) - sizeof(u32) - (size_t)n - 1, "--stereo-link");
     Result rc = HbldrCall(hbldr, 2, path, (u32)strlen(path) + 1, 0);
     if (R_SUCCEEDED(rc)) rc = HbldrCall(hbldr, 3, argv, sizeof(argv), 1);
     svcCloseHandle(hbldr);

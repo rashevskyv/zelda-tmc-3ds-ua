@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "port_stereo_link.h"
 #include <unistd.h>
 
 #define APP_DIR "sdmc:/3ds/The Minish Cap 3DS"
@@ -132,6 +133,14 @@ int main(int argc, char** argv) {
     printf("Starting engine...\n");
     Platform3DS_EnterGameplayDisplay();
     Updater_Init(argc > 0 ? argv[0] : NULL);
+    /* Never leave the PC editor's port taken for the next build. */
+    atexit(PortStereoLink_Shutdown);
+    /* Relaunched by the PC stereo editor: come back with its link on. */
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] != NULL && strcmp(argv[i], "--stereo-link") == 0) {
+            PortStereoLink_SetEnabled(true);
+        }
+    }
     AgbMain();
     Updater_Shutdown();
 

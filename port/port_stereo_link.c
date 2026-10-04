@@ -77,7 +77,8 @@
 #define LINK_AREA_COUNT 0x90
 
 enum {
-    MAX_CLIENTS = 4,
+    MAX_CLIENTS = 12,
+    DRAIN_FRAMES = 30,
     MAX_REQUEST = 24 * 1024 * 1024, /* a 3dsx sent by POST /file */
     SEND_PER_TICK = 96 * 1024,
     CLIENT_TIMEOUT_FRAMES = 60 * 60,
@@ -103,6 +104,7 @@ typedef struct {
 static volatile bool sEnabled;
 static bool sNetUp;
 static bool sNetFailed;
+static int sPort = PORT_STEREO_LINK_PORT;
 static uint32_t sAddress;
 static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
@@ -192,8 +194,11 @@ void PortStereoLink_Label(char* out, size_t size) {
         snprintf(out, size, "WAIT");
     } else {
         const uint32_t a = sAddress;
-        snprintf(out, size, "%u.%u.%u.%u", (unsigned)(a & 0xff), (unsigned)((a >> 8) & 0xff),
-                 (unsigned)((a >> 16) & 0xff), (unsigned)(a >> 24));
+        const int n = snprintf(out, size, "%u.%u.%u.%u", (unsigned)(a & 0xff), (unsigned)((a >> 8) & 0xff),
+                               (unsigned)((a >> 16) & 0xff), (unsigned)(a >> 24));
+        if (sPort != PORT_STEREO_LINK_PORT && n > 0 && (size_t)n < size) {
+            snprintf(out + n, size - (size_t)n, ":%d", sPort);
+        }
     }
 }
 
@@ -241,13 +246,21 @@ static bool LinkStart(void) {
         sNetFailed = true;
         return false;
     }
-    struct sockaddr_in address = { 0 };
-    address.sin_family = AF_INET;
-    address.sin_port = htons(PORT_STEREO_LINK_PORT);
-    address.sin_addr.s_addr = htonl(INADDR_ANY);
     const int yes = 1;
     setsockopt(sListen, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    if (bind(sListen, (struct sockaddr*)&address, sizeof(address)) != 0 || listen(sListen, 4) != 0) {
+    /* A build that left without closing its socket can keep the port taken
+     * until the console restarts: then take the next one (the label and the
+     * PC editor know). */
+    bool bound = false;
+    for (sPort = PORT_STEREO_LINK_PORT; sPort < PORT_STEREO_LINK_PORT + 4 && !bound; ++sPort) {
+        struct sockaddr_in address = { 0 };
+        address.sin_family = AF_INET;
+        address.sin_port = htons((u16)sPort);
+        address.sin_addr.s_addr = htonl(INADDR_ANY);
+        bound = bind(sListen, (struct sockaddr*)&address, sizeof(address)) == 0;
+    }
+    --sPort;
+    if (!bound || listen(sListen, 16) != 0) {
         LinkStop();
         sNetFailed = true;
         return false;
@@ -1048,7 +1061,7 @@ static void ServeClient(Client* client) {
     if (client->draining) {
         char sink[256];
         const ssize_t n = recv(client->socket, sink, sizeof(sink), 0);
-        if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || ++client->draining > 180) {
+        if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || ++client->draining > DRAIN_FRAMES) {
             CloseClient(client);
         }
         return;
@@ -1201,6 +1214,7 @@ void PortStereoLink_Tick(void) {
     }
     PendingGotoTick();
     if (sQuitIn != 0 && --sQuitIn == 0) {
+        LinkStop(); /* leave the port free for the build that starts next */
         PortStereoLink_Quit();
     }
     if (!sEnabled) {
@@ -1228,7 +1242,16 @@ void PortStereoLink_Tick(void) {
             }
         }
         if (free == NULL) {
-            break;
+            /* Every slot taken: give up the one that has answered longest ago. */
+            for (int i = 0; i < MAX_CLIENTS; ++i) {
+                if (sClients[i].draining && (free == NULL || sClients[i].draining > free->draining)) {
+                    free = &sClients[i];
+                }
+            }
+            if (free == NULL) {
+                break;
+            }
+            CloseClient(free);
         }
         struct sockaddr_in peer;
         socklen_t peerLength = sizeof(peer);
@@ -1253,4 +1276,9 @@ void PortStereoLink_Tick(void) {
         }
         ServeClient(client);
     }
+}
+
+void PortStereoLink_Shutdown(void) {
+    sEnabled = false;
+    LinkStop();
 }

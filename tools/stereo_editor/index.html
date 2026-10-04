@@ -548,6 +548,13 @@ async function connect() {
   if (!/:\d+$/.test(addr.replace(/^https?:\/\//, ""))) addr += ":" + PORT;
   S.base = addr; setChip("підключення…", "warn");
   try {
+    /* A port left taken makes the console use the next one (8334…8336). */
+    if (!/:\d+$/.test($("addr").value.trim())) {
+      for (let p = PORT; p < PORT + 4; ++p) {
+        try { S.base = addr.replace(/:\d+$/, ":" + p); S.status = await api("/status", { json: true, timeout: 2500 }); break; }
+        catch (e) { if (p === PORT + 3) throw e; }
+      }
+    }
     S.status = await api("/status", { json: true });
     S.rooms = (await api("/rooms", { json: true, timeout: 15000 })).map(([area, room, mapX, mapY, w, h, tileset]) => ({ area, room, mapX, mapY, w, h, tileset }));
     dbPut("kv", "rooms", JSON.stringify(S.rooms));

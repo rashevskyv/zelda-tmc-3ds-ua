@@ -54,6 +54,8 @@
 /* Once a frame on the game thread: accepts, reads, answers. */
 void PortStereoLink_Tick(void);
 void PortStereoLink_SetEnabled(bool enabled);
+/* Close the sockets and the network: on leaving the game. */
+void PortStereoLink_Shutdown(void);
 bool PortStereoLink_Enabled(void);
 /* "OFF", "WAIT", "NO WI-FI" or the console's address; any thread. */
 void PortStereoLink_Label(char* out, size_t size);
