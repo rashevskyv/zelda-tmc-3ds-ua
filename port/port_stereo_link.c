@@ -82,7 +82,8 @@
 enum {
     MAX_CLIENTS = 12,
     DRAIN_FRAMES = 30,
-    MAX_REQUEST = 24 * 1024 * 1024, /* a 3dsx sent by POST /file */
+    MAX_REQUEST = 2 * 1024 * 1024,
+    UPLOAD_PER_TICK = 64 * 1024,
     SEND_PER_TICK = 96 * 1024,
     CLIENT_TIMEOUT_FRAMES = 60 * 60,
     RECV_CHUNK = 32 * 1024,
@@ -99,6 +100,13 @@ typedef struct {
     unsigned age;
     /* Waiting for the renderer's copy of the eyes (GET /frame). */
     unsigned frameWait;
+    /* POST /file goes to the card as it arrives: a 3DSX held whole in memory
+     * starved the game (it froze the console). */
+    FILE* upload;
+    size_t uploadLeft, uploadDone;
+    bool uploadFailed;
+    char uploadMagic[4];
+    char uploadPath[96];
     /* Frames since the answer went out: the console's sockets drop what is
      * still unsent when closed at once, so the client closes first. */
     unsigned draining;
@@ -225,6 +233,12 @@ static void SetNonBlocking(int socket) {
 }
 
 static void CloseClient(Client* client) {
+    if (client->upload != NULL) {
+        char temp[104];
+        snprintf(temp, sizeof(temp), "%s.part", client->uploadPath);
+        fclose(client->upload);
+        remove(temp);
+    }
     if (client->socket >= 0) {
         close(client->socket);
     }
@@ -851,34 +865,65 @@ static void AnswerGoto(Client* client, const char* query) {
 
 /* POST /file?name=x.3dsx: a new build into sdmc:/3ds/, so a test build
  * reaches the console while the game runs; only a plain .3dsx name. */
-static void AnswerFile(Client* client, const char* query, const char* body, size_t bodyLength) {
+static void RespondText(Client* client, int status, const char* text);
+
+/* Starts writing the body of POST /file?name=x.3dsx to sdmc:/3ds/x.3dsx.part;
+ * false (answered) when the name is not a plain .3dsx. */
+static bool UploadStart(Client* client, const char* query, size_t contentLength) {
     char name[64] = { 0 };
     const char* at = query ? strstr(query, "name=") : NULL;
     if (at != NULL) {
         sscanf(at + 5, "%63[A-Za-z0-9._-]", name);
     }
     const size_t n = strlen(name);
-    if (n < 6 || strcmp(name + n - 5, ".3dsx") != 0 || strstr(name, "..") != NULL || bodyLength < 4 ||
-        memcmp(body, "3DSX", 4) != 0) {
+    if (n < 6 || strcmp(name + n - 5, ".3dsx") != 0 || strstr(name, "..") != NULL || contentLength < 4) {
         RespondText(client, 400, "only a .3dsx, by name, into sdmc:/3ds/");
-        return;
+        return false;
     }
-    char path[96], temp[104];
-    snprintf(path, sizeof(path), "sdmc:/3ds/%s", name);
-    snprintf(temp, sizeof(temp), "%s.part", path);
-    LinkLog("[link] writing %s, %u bytes", path, (unsigned)bodyLength);
-    FILE* file = fopen(temp, "wb");
-    bool written = file != NULL && fwrite(body, 1, bodyLength, file) == bodyLength;
-    if (file != NULL && fclose(file) != 0) {
-        written = false;
-    }
-    if (!written) {
-        remove(temp);
+    char temp[104];
+    snprintf(client->uploadPath, sizeof(client->uploadPath), "sdmc:/3ds/%s", name);
+    snprintf(temp, sizeof(temp), "%s.part", client->uploadPath);
+    client->upload = fopen(temp, "wb");
+    if (client->upload == NULL) {
         RespondText(client, 400, "cannot write");
+        return false;
+    }
+    client->uploadLeft = contentLength;
+    client->uploadDone = 0;
+    client->uploadFailed = false;
+    LinkLog("[link] receiving %s, %u bytes", client->uploadPath, (unsigned)contentLength);
+    return true;
+}
+
+static void UploadWrite(Client* client, const char* data, size_t length) {
+    if (length > client->uploadLeft) {
+        length = client->uploadLeft;
+    }
+    for (size_t i = 0; client->uploadDone + i < 4 && i < length; ++i) {
+        client->uploadMagic[client->uploadDone + i] = data[i];
+    }
+    if (!client->uploadFailed && fwrite(data, 1, length, client->upload) != length) {
+        client->uploadFailed = true;
+    }
+    client->uploadDone += length;
+    client->uploadLeft -= length;
+}
+
+static void UploadFinish(Client* client) {
+    char temp[104];
+    snprintf(temp, sizeof(temp), "%s.part", client->uploadPath);
+    const bool closed = fclose(client->upload) == 0;
+    client->upload = NULL;
+    if (client->uploadFailed || !closed || memcmp(client->uploadMagic, "3DSX", 4) != 0) {
+        remove(temp);
+        LinkLog("[link] dropped %s", client->uploadPath);
+        RespondText(client, 400, "cannot write, or not a 3DSX");
         return;
     }
-    remove(path);
-    RespondText(client, rename(temp, path) == 0 ? 200 : 400, "ok");
+    remove(client->uploadPath);
+    const bool renamed = rename(temp, client->uploadPath) == 0;
+    LinkLog("[link] wrote %s: %s", client->uploadPath, renamed ? "ok" : "rename failed");
+    RespondText(client, renamed ? 200 : 400, renamed ? "ok" : "cannot rename");
 }
 
 /* GET /: the PC editor itself, packed into romfs by the build, so a browser
@@ -1088,7 +1133,7 @@ static void Answer(Client* client) {
     } else if (post && strcmp(target, "/select") == 0) {
         AnswerSelect(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/file") == 0) {
-        AnswerFile(client, query, body, bodyLength);
+        RespondText(client, 400, "upload not started");
     } else if (post && strcmp(target, "/test") == 0) {
         if (QueryInt(query, "on", -1) >= 0) {
             SetTestMode(QueryInt(query, "on", 0) != 0);
@@ -1163,6 +1208,29 @@ static void ServeClient(Client* client) {
         }
         return;
     }
+    if (client->upload != NULL) {
+        static char chunk[RECV_CHUNK];
+        size_t budget = UPLOAD_PER_TICK;
+        while (client->uploadLeft > 0 && budget > 0) {
+            const ssize_t n = recv(client->socket, chunk, sizeof(chunk) < budget ? sizeof(chunk) : budget, 0);
+            if (n > 0) {
+                UploadWrite(client, chunk, (size_t)n);
+                budget -= (size_t)n < budget ? (size_t)n : budget;
+                continue;
+            }
+            if (n == 0) {
+                CloseClient(client);
+                return;
+            }
+            break;
+        }
+        client->age = 0; /* a slow upload is not a dead client */
+        if (client->uploadLeft == 0) {
+            UploadFinish(client);
+        } else {
+            return;
+        }
+    }
     if (client->response == NULL) {
         for (;;) {
             if (client->requestLength + RECV_CHUNK + 1 > client->requestCapacity) {
@@ -1179,6 +1247,30 @@ static void ServeClient(Client* client) {
             if (n > 0) {
                 client->requestLength += (size_t)n;
                 client->request[client->requestLength] = '\0';
+                /* POST /file: once the headers are in, the body goes to the card. */
+                const char* end = strstr(client->request, "\r\n\r\n");
+                if (end != NULL && strncmp(client->request, "POST /file", 10) == 0) {
+                    char target[256] = { 0 };
+                    sscanf(client->request, "%*7s %255s", target);
+                    char* query = strchr(target, '?');
+                    size_t contentLength = 0;
+                    for (const char* line = client->request; line != NULL && line < end;) {
+                        if (strncasecmp(line, "Content-Length:", 15) == 0) {
+                            contentLength = (size_t)strtoul(line + 15, NULL, 10);
+                        }
+                        line = strchr(line, '\n');
+                        line = line ? line + 1 : NULL;
+                    }
+                    const size_t head = (size_t)(end + 4 - client->request);
+                    if (UploadStart(client, query ? query + 1 : NULL, contentLength)) {
+                        UploadWrite(client, client->request + head, client->requestLength - head);
+                        free(client->request);
+                        client->request = NULL;
+                        client->requestLength = client->requestCapacity = 0;
+                        ServeClient(client);
+                    }
+                    return;
+                }
                 continue;
             }
             if (n == 0) {
