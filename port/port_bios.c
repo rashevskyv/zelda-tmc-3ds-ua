@@ -753,12 +753,20 @@ void VBlankIntrWait(void) {
     {
         extern bool Port_SecondScreen_3DS_UpdateOpen(void);
         extern void Port_Audio_3DSSetPaused(bool paused);
-        if (Port_SecondScreen_3DS_UpdateOpen()) {
+        extern int PortStereoLink_UploadProgress(void);
+        extern void PortStereoLink_Tick(void);
+        if (Port_SecondScreen_3DS_UpdateOpen() || PortStereoLink_UploadProgress() >= 0) {
             Port_Audio_3DSSetPaused(true);
-            while (Platform3DS_IsRunning() && Port_SecondScreen_3DS_UpdateOpen()) {
+            while (Platform3DS_IsRunning() &&
+                   (Port_SecondScreen_3DS_UpdateOpen() || PortStereoLink_UploadProgress() >= 0)) {
                 Port_PPU_PresentFrame();
                 Platform3DS_WaitForVBlank();
                 port_hdma_vblank_reset();
+                /* A build from the PC editor: the game holds still, the link
+                 * (which otherwise runs from VBlankIntr) goes on taking it. */
+                if (PortStereoLink_UploadProgress() >= 0) {
+                    PortStereoLink_Tick();
+                }
             }
             Port_Audio_3DSSetPaused(false);
             Platform3DS_MarkFrameDiscontinuity(OLD3DS_FRAME_PACER_DISCONTINUITY_APT);

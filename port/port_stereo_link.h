@@ -54,6 +54,13 @@
 /* Once a frame on the game thread: accepts, reads, answers. */
 void PortStereoLink_Tick(void);
 void PortStereoLink_SetEnabled(bool enabled);
+/* Left by a relaunch for the build that starts next (current directory). */
+#define PORT_STEREO_LINK_RELAUNCH_MARKER "stereo_link.relaunch"
+
+/* While a build is coming in: the game holds still and the bottom screen
+ * shows how far it is (0..1000 per mille), or -1 when nothing comes. */
+int PortStereoLink_UploadProgress(void);
+
 /* Close the sockets and the network: on leaving the game. */
 void PortStereoLink_Shutdown(void);
 bool PortStereoLink_Enabled(void);

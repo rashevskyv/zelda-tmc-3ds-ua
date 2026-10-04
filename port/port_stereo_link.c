@@ -1169,6 +1169,10 @@ static void Answer(Client* client) {
         LinkLog("[link] relaunch %s: %d", name, status);
         if (status == 200) {
             PortStereoEdits_Save();
+            FILE* marker = fopen(PORT_STEREO_LINK_RELAUNCH_MARKER, "w");
+            if (marker != NULL) {
+                fclose(marker);
+            }
             sQuitIn = 45; /* let this answer leave first */
         }
         RespondText(client, status, status == 200 ? "ok, restarting" : status == 404 ? "no such file"
@@ -1210,7 +1214,9 @@ static void ServeClient(Client* client) {
     }
     if (client->upload != NULL) {
         static char chunk[RECV_CHUNK];
-        size_t budget = UPLOAD_PER_TICK;
+        /* The game holds still while a build comes in (port_bios.c), so a
+         * frame can take more. */
+        size_t budget = UPLOAD_PER_TICK * 4;
         while (client->uploadLeft > 0 && budget > 0) {
             const ssize_t n = recv(client->socket, chunk, sizeof(chunk) < budget ? sizeof(chunk) : budget, 0);
             if (n > 0) {
@@ -1407,7 +1413,7 @@ void PortStereoLink_Tick(void) {
     }
     PendingGotoTick();
     if (sQuitIn != 0 && --sQuitIn == 0) {
-        LinkStop(); /* leave the port free for the build that starts next */
+        LinkLog("[link] quitting for the relaunch");
         PortStereoLink_Quit();
     }
     if (!sEnabled) {
@@ -1469,6 +1475,17 @@ void PortStereoLink_Tick(void) {
         }
         ServeClient(client);
     }
+}
+
+int PortStereoLink_UploadProgress(void) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        const Client* c = &sClients[i];
+        if (c->socket >= 0 && c->upload != NULL) {
+            const size_t total = c->uploadDone + c->uploadLeft;
+            return total ? (int)((c->uploadDone * 1000u) / total) : 0;
+        }
+    }
+    return -1;
 }
 
 void PortStereoLink_Shutdown(void) {
