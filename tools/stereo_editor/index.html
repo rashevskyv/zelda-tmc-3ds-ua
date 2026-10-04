@@ -1379,7 +1379,14 @@ window.addEventListener("keydown", ev => {
 window.addEventListener("keyup", ev => { if (ev.code === "Space") S.spaceDown = false; });
 function toggle(id) { $(id).checked = !$(id).checked; $(id).dispatchEvent(new Event("change")); }
 function setTool(t) { S.tool = t; for (const b of document.querySelectorAll("[data-tool]")) b.classList.toggle("on", b.dataset.tool === t); view.style.cursor = t === "pan" ? "grab" : "crosshair"; }
-function setLayers(l) { S.layers = l; for (const b of document.querySelectorAll("[data-layer]")) b.classList.toggle("on", +b.dataset.layer === l); updateSelInfo(); draw(); }
+function setLayers(l) {
+  S.layers = l;
+  for (const b of document.querySelectorAll("[data-layer]")) b.classList.toggle("on", +b.dataset.layer === l);
+  /* Show the map layer being edited only (both for both). */
+  $("showBottom").checked = (l & LAYER_BOTTOM) !== 0;
+  $("showTop").checked = (l & LAYER_TOP) !== 0;
+  updateSelInfo(); draw();
+}
 
 /* ===== Files ===== */
 async function saveOnConsole() {

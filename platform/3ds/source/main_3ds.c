@@ -139,8 +139,8 @@ int main(int argc, char** argv) {
         PortStereoLink_SetEnabled(true);
     }
     AgbMain();
-    /* The link's sockets go before the services under them. */
-    PortStereoLink_Shutdown();
+    /* The link's network is left to the system on the way out: closing it
+     * here hung the console when relaunching into another build. */
     Updater_Shutdown();
 
     Port_PPU_Shutdown();
