@@ -1196,6 +1196,12 @@ function sameTilesAs(cells) {
   }
   return out;
 }
+/* Every cell of the room standing at one of these heights (layers edited). */
+function sameHeightAs(heights) {
+  const want = new Set(heights), out = [];
+  for (let row = 0; row < S.room.rows; ++row) for (let col = 0; col < S.room.cols; ++col) if (want.has(cellHeight(row * SIDE + col))) out.push(row * SIDE + col);
+  return out;
+}
 function closeMenu() { $("ctxMenu").classList.remove("open"); }
 function openMenu(x, y, cell) {
   if (!S.room) return;
@@ -1205,6 +1211,10 @@ function openMenu(x, y, cell) {
   if (source.length) {
     items.push(["Виділити всі такі в кімнаті", "T+клік", () => applySel(sameTilesAs(source), "replace")]);
     items.push(["Додати всі такі до виділення", "", () => applySel(sameTilesAs(source), "add")]);
+    const heights = [...new Set(source.map(i => cellHeight(i)))].sort((a, b) => a - b);
+    const label = heights.length > 4 ? `${heights[0]}…${heights[heights.length - 1]}` : heights.join(", ");
+    items.push([`Виділити всі цієї висоти (${label})`, "", () => applySel(sameHeightAs(heights), "replace")]);
+    items.push([`Додати всі цієї висоти (${label})`, "", () => applySel(sameHeightAs(heights), "add")]);
   }
   if (S.selCount) {
     items.push(null);
