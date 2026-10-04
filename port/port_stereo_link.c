@@ -125,6 +125,19 @@ extern void EraseHearts(void);
 
 static bool InGame(void);
 
+/* What the link does goes to tmc3ds.log, so a stall can be traced to it. */
+extern void Platform3DS_Debug(const char* line);
+static void LinkLog(const char* format, ...) __attribute__((format(printf, 1, 2)));
+static void LinkLog(const char* format, ...) {
+    char line[160];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(line, sizeof(line) - 1, format, args);
+    va_end(args);
+    strncat(line, "\n", sizeof(line) - strlen(line) - 1);
+    Platform3DS_Debug(line);
+}
+
 bool PortStereoLink_SavesBlocked(void) {
     return sTestMode;
 }
@@ -133,6 +146,7 @@ static void SetTestMode(bool on) {
     if (on == sTestMode) {
         return;
     }
+    LinkLog("[link] test mode %s", on ? "on" : "off");
     if (on) {
         sTestBackup = malloc(sizeof(gSave));
         if (sTestBackup == NULL) {
@@ -266,6 +280,7 @@ static bool LinkStart(void) {
         return false;
     }
     SetNonBlocking(sListen);
+    LinkLog("[link] listening on port %d", sPort);
     return true;
 }
 
@@ -273,7 +288,9 @@ static bool LinkStart(void) {
  * The OAM only holds what is on screen. POST /sweep walks the camera over
  * the room -- Link stays where he is: the camera follows a stand-in target --
  * and keeps the sprites seen at each stop; /room then sends them all. */
-enum { MAX_SWEEP = 40, SWEEP_SETTLE = 8, SWEEP_GIVE_UP = 90 };
+/* The tilemap streams in a row or column of tiles per 16 pixels of camera
+ * travel; no faster than that. */
+enum { MAX_SWEEP = 40, SWEEP_SETTLE = 8, SWEEP_GIVE_UP = 180, SWEEP_SPEED = 16 };
 typedef struct {
     s16 scrollX, scrollY;
     u16 dispcnt;
@@ -302,6 +319,7 @@ static void SweepFree(void) {
 
 static void SweepEnd(void) {
     if (sSweep.active) {
+        LinkLog("[link] camera tour done: %d of %d stops", sSweep.shotCount, sSweep.count);
         gRoomControls.camera_target = sSweep.savedTarget;
         gRoomControls.scrollSpeed = sSweep.savedSpeed;
         sSweep.active = false;
@@ -338,8 +356,9 @@ static bool SweepStart(void) {
     sSweep.waited = 0;
     sSweep.savedTarget = gRoomControls.camera_target;
     sSweep.savedSpeed = gRoomControls.scrollSpeed;
-    gRoomControls.scrollSpeed = 0x40;
+    gRoomControls.scrollSpeed = SWEEP_SPEED;
     sSweep.active = true;
+    LinkLog("[link] camera tour of %02x:%02x, %d stops", gRoomControls.area, gRoomControls.room, sSweep.count);
     return true;
 }
 
@@ -354,7 +373,7 @@ static void SweepTick(void) {
     sSweepTarget.x.HALF.HI = sSweep.targets[sSweep.next][0];
     sSweepTarget.y.HALF.HI = sSweep.targets[sSweep.next][1];
     gRoomControls.camera_target = &sSweepTarget;
-    gRoomControls.scrollSpeed = 0x40;
+    gRoomControls.scrollSpeed = SWEEP_SPEED;
     const int wantX = sSweep.targets[sSweep.next][0] - 120, wantY = sSweep.targets[sSweep.next][1] - 80;
     const bool there = (gRoomControls.scroll_x == wantX || gRoomControls.scroll_x == gRoomControls.origin_x ||
                         gRoomControls.scroll_x == gRoomControls.origin_x + gRoomControls.width - 240) &&
@@ -771,6 +790,7 @@ static void AnswerFile(Client* client, const char* query, const char* body, size
     char path[96], temp[104];
     snprintf(path, sizeof(path), "sdmc:/3ds/%s", name);
     snprintf(temp, sizeof(temp), "%s.part", path);
+    LinkLog("[link] writing %s, %u bytes", path, (unsigned)bodyLength);
     FILE* file = fopen(temp, "wb");
     bool written = file != NULL && fwrite(body, 1, bodyLength, file) == bodyLength;
     if (file != NULL && fclose(file) != 0) {
@@ -1025,6 +1045,7 @@ static void Answer(Client* client) {
         }
         const size_t n = strlen(name);
         const int status = n > 5 && strcmp(name + n - 5, ".3dsx") == 0 ? PortStereoLink_Relaunch(name) : 400;
+        LinkLog("[link] relaunch %s: %d", name, status);
         if (status == 200) {
             PortStereoEdits_Save();
             sQuitIn = 45; /* let this answer leave first */
