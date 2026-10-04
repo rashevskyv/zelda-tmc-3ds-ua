@@ -27,6 +27,7 @@
  *   POST /select?area=&room=         frame cells on the top screen; body
  *                                    "row col0 col1" lines, empty to clear
  *   POST /save                       write stereo_edits.txt
+ *   POST /file?name=x.3dsx           a new build into sdmc:/3ds/ (3DSX only)
  *
  * Every answer allows any origin, so the page can be opened from a file.
  */

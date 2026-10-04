@@ -60,9 +60,10 @@
 
 enum {
     MAX_CLIENTS = 4,
-    MAX_REQUEST = 2 * 1024 * 1024,
+    MAX_REQUEST = 24 * 1024 * 1024, /* a 3dsx sent by POST /file */
     SEND_PER_TICK = 96 * 1024,
-    CLIENT_TIMEOUT_FRAMES = 60 * 20,
+    CLIENT_TIMEOUT_FRAMES = 60 * 60,
+    RECV_CHUNK = 32 * 1024,
     SIDE = PORT_STEREO_EDIT_SIDE,
     MAX_HIGHLIGHT = 4096,
 };
@@ -506,6 +507,37 @@ static void AnswerGoto(Client* client, const char* query) {
     RespondText(client, status, status == 200 ? "ok" : status == 404 ? "no such room" : "busy");
 }
 
+/* POST /file?name=x.3dsx: a new build into sdmc:/3ds/, so a test build
+ * reaches the console while the game runs; only a plain .3dsx name. */
+static void AnswerFile(Client* client, const char* query, const char* body, size_t bodyLength) {
+    char name[64] = { 0 };
+    const char* at = query ? strstr(query, "name=") : NULL;
+    if (at != NULL) {
+        sscanf(at + 5, "%63[A-Za-z0-9._-]", name);
+    }
+    const size_t n = strlen(name);
+    if (n < 6 || strcmp(name + n - 5, ".3dsx") != 0 || strstr(name, "..") != NULL || bodyLength < 4 ||
+        memcmp(body, "3DSX", 4) != 0) {
+        RespondText(client, 400, "only a .3dsx, by name, into sdmc:/3ds/");
+        return;
+    }
+    char path[96], temp[104];
+    snprintf(path, sizeof(path), "sdmc:/3ds/%s", name);
+    snprintf(temp, sizeof(temp), "%s.part", path);
+    FILE* file = fopen(temp, "wb");
+    bool written = file != NULL && fwrite(body, 1, bodyLength, file) == bodyLength;
+    if (file != NULL && fclose(file) != 0) {
+        written = false;
+    }
+    if (!written) {
+        remove(temp);
+        RespondText(client, 400, "cannot write");
+        return;
+    }
+    remove(path);
+    RespondText(client, rename(temp, path) == 0 ? 200 : 400, "ok");
+}
+
 static void AnswerSelect(Client* client, const char* query, const char* body, size_t bodyLength) {
     const int area = QueryInt(query, "area", gRoomControls.area);
     const int room = QueryInt(query, "room", gRoomControls.room);
@@ -635,6 +667,8 @@ static void Answer(Client* client) {
         AnswerGoto(client, query);
     } else if (post && strcmp(target, "/select") == 0) {
         AnswerSelect(client, query, body, bodyLength);
+    } else if (post && strcmp(target, "/file") == 0) {
+        AnswerFile(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/save") == 0) {
         const bool saved = PortStereoEdits_Save();
         RespondText(client, saved ? 200 : 400, saved ? "ok" : "cannot write");
@@ -672,8 +706,8 @@ static void ServeClient(Client* client) {
     }
     if (client->response == NULL) {
         for (;;) {
-            if (client->requestLength + 4096 + 1 > client->requestCapacity) {
-                const size_t capacity = client->requestCapacity ? client->requestCapacity * 2 : 8192;
+            if (client->requestLength + RECV_CHUNK + 1 > client->requestCapacity) {
+                const size_t capacity = client->requestCapacity ? client->requestCapacity * 2 : 64 * 1024;
                 char* grown = capacity <= MAX_REQUEST ? realloc(client->request, capacity) : NULL;
                 if (grown == NULL) {
                     CloseClient(client);
@@ -682,7 +716,7 @@ static void ServeClient(Client* client) {
                 client->request = grown;
                 client->requestCapacity = capacity;
             }
-            const ssize_t n = recv(client->socket, client->request + client->requestLength, 4096, 0);
+            const ssize_t n = recv(client->socket, client->request + client->requestLength, RECV_CHUNK, 0);
             if (n > 0) {
                 client->requestLength += (size_t)n;
                 client->request[client->requestLength] = '\0';
