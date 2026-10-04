@@ -135,7 +135,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <button data-tool="entity" title="Спрайти: клік — вибрати об'єкт (E)">☺<small>E</small></button>
         <button data-tool="pan" title="Рука: рухати вигляд (H, або права кнопка миші)">✋<small>H</small></button>
       </div>
-      <div class="row small muted" style="margin-top:6px">Shift — додати до виділення, Alt — відняти.</div>
+      <div class="row small muted" style="margin-top:6px">Shift — додати до виділення, Alt — відняти.<br><b>Ctrl+клік</b> — перенести Лінка в цю клітинку (і у вигляді області — в будь-яку кімнату).</div>
       <div class="row" id="brushRow">Пензель <select id="brushSize"><option value="1">1×1</option><option value="2">2×2</option><option value="3">3×3</option><option value="4">4×4</option></select>
         <label title="Паличка порівнює плитки, а не висоти"><input type="checkbox" id="wandTile"> паличка за плиткою</label></div>
     </div>
@@ -209,6 +209,8 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
   <table>
     <tr><td><kbd>R</kbd> <kbd>B</kbd> <kbd>L</kbd> <kbd>W</kbd> <kbd>T</kbd></td><td>прямокутник, пензель, ласо, паличка (та сама висота поруч), усі такі плитки кімнати</td></tr>
     <tr><td><kbd>I</kbd> <kbd>E</kbd> <kbd>H</kbd></td><td>піпетка висоти, вибір спрайтів, рука</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+клік</td><td>перенести Лінка в цю клітинку, хоч би куди; у вигляді області — в будь-яке місце будь-якої кімнати</td></tr>
+    <tr><td><kbd>Ctrl+C</kbd> <kbd>Ctrl+V</kbd></td><td>копіювати висоти виділеного / вставити під курсором (і в іншій кімнаті)</td></tr>
     <tr><td>Shift / Alt</td><td>додати до виділення / відняти</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd> або <kbd>+</kbd> <kbd>−</kbd></td><td>вище / нижче на 1</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>поставити висоту з поля</td></tr>
@@ -218,7 +220,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <tr><td><kbd>M</kbd></td><td>вигляд області: усі кімнати на мапі; клік відкриває кімнату</td></tr>
     <tr><td><kbd>G</kbd> <kbd>C</kbd> <kbd>P</kbd> <kbd>V</kbd></td><td>сітка, кольори, 3D-перегляд, живий кадр консолі</td></tr>
     <tr><td>Колесо / права кнопка</td><td>масштаб / рухати вигляд</td></tr>
-    <tr><td><kbd>Ctrl+Z</kbd> <kbd>Ctrl+Y</kbd> <kbd>Ctrl+A</kbd> <kbd>Esc</kbd></td><td>скасувати, повторити, виділити все, зняти виділення</td></tr>
+    <tr><td><kbd>Ctrl+Z</kbd> <kbd>Ctrl+Y</kbd> <kbd>Ctrl+A</kbd> <kbd>Ctrl+S</kbd> <kbd>Esc</kbd></td><td>скасувати, повторити (також Ctrl+Shift+Z), виділити все, зберегти на консолі, зняти виділення. Працюють на будь-якій розкладці.</td></tr>
   </table>
   <p><b>Правила плиток</b> — найшвидший шлях: виділіть, наприклад, дерево, і «Правило: = 2» підніме всі такі дерева в грі. Для винятків правте клітинки кімнати.</p>
   <p><b>Кольори:</b> рівень землі прозорий, нижче — синій, вище — зелений → жовтий → помаранчевий → червоний → фіолетовий. Біла смужка — клітинка з правкою, блакитна рамка — правило плитки.</p>
@@ -972,6 +974,48 @@ function resetEntity() {
   S.entitiesDirty = true; afterChange();
 }
 
+/* ===== Link anywhere ===== */
+async function teleport(area, room, x, y) {
+  if (!S.connected) { toast("Потрібен зв'язок з консоллю"); return; }
+  const same = S.room && S.room.area === area && S.room.room === room;
+  try {
+    await api(`/goto?area=${area}&room=${room}&x=${x}&y=${y}`, { method: "POST", body: "" });
+    toast(`Лінк → ${hex2(area)}:${hex2(room)} (${x >> 3}, ${y >> 3})`);
+    if (!same) {
+      for (let i = 0; i < 40; ++i) {
+        await new Promise(r => setTimeout(r, 250));
+        const st = await api("/status", { json: true });
+        if (st.area === area && st.room === room && !st.transition && st.inGame && !st.fade) { S.status = st; await loadCurrentRoom(); return; }
+      }
+    }
+  } catch (e) { toast("Не вдалося перенести: " + e.message.replace(/^409 .*/, "гра зайнята (заставка, меню чи перехід)")); }
+}
+
+/* ===== Copy and paste of heights ===== */
+let clipboard = null;
+function copySel() {
+  if (!needSel()) return;
+  let x0 = SIDE, y0 = SIDE;
+  for (const i of selectedCells()) { x0 = Math.min(x0, i % SIDE); y0 = Math.min(y0, (i / SIDE) | 0); }
+  clipboard = { layers: S.layers, cells: selectedCells().map(i => ({ dx: i % SIDE - x0, dy: ((i / SIDE) | 0) - y0, b: S.heights.bottom[i], t: S.heights.top[i] })) };
+  toast(`Скопійовано висоти ${clipboard.cells.length} клітинок — Ctrl+V вставить під курсором`);
+}
+function pasteAtHover() {
+  if (!clipboard) { toast("Спершу скопіюйте виділене (Ctrl+C)"); return; }
+  if (!S.room || !S.hover) { toast("Наведіть курсор на кімнату"); return; }
+  beginChange();
+  const e = S.edits.room(S.room.area, S.room.room, true), pasted = [];
+  for (const c of clipboard.cells) {
+    const col = S.hover.col + c.dx, row = S.hover.row + c.dy; if (!inRoom(col, row)) continue;
+    const i = row * SIDE + col; pasted.push(i);
+    if (clipboard.layers & 1) { e.flags[0][i] = CELL_HAS | CELL_SET; e.value[0][i] = clamp(c.b, -HEIGHT_LIMIT, HEIGHT_LIMIT); }
+    if (clipboard.layers & 2) { e.flags[1][i] = CELL_HAS | CELL_SET; e.value[1][i] = clamp(c.t, -HEIGHT_LIMIT, HEIGHT_LIMIT); }
+  }
+  S.selection.fill(0); S.selCount = 0; for (const i of pasted) setSel(i, true);
+  roomChanged(); scheduleSelectPush();
+  toast(`Вставлено ${pasted.length} клітинок`);
+}
+
 /* ===== Undo ===== */
 function undo() { if (!S.undo.length || !S.room) return; const s = S.undo.pop(); S.redo.push(S.edits.snapshot(s.a, s.r)); S.edits.restore(s); markAllDirty(s); }
 function redo() { if (!S.redo.length || !S.room) return; const s = S.redo.pop(); S.undo.push(S.edits.snapshot(s.a, s.r)); S.edits.restore(s); markAllDirty(s); }
@@ -984,7 +1028,10 @@ view.addEventListener("mousedown", ev => {
     const rect = view.getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
     if (ev.button !== 0 || S.tool === "pan" || S.spaceDown) { S.drag = { type: "areapan", sx: mx, sy: my, px: S.areaView.panX, py: S.areaView.panY }; return; }
     const r = areaPick(mx, my);
-    if (r) { toggleArea(false); gotoRoom(r.area, r.room); }
+    if (r && (ev.ctrlKey || ev.metaKey)) {
+      const A = S.areaView, x = Math.floor((mx - A.panX) / A.zoom + A.bounds[0] - r.mapX), y = Math.floor((my - A.panY) / A.zoom + A.bounds[1] - r.mapY);
+      toggleArea(false); teleport(r.area, r.room, x, y);
+    } else if (r) { toggleArea(false); gotoRoom(r.area, r.room); }
     return;
   }
   if (!S.room) return;
@@ -998,6 +1045,10 @@ view.addEventListener("mousedown", ev => {
     return;
   }
   if (!inRoom(c.col, c.row) && S.tool !== "rect" && S.tool !== "lasso") return;
+  if ((ev.ctrlKey || ev.metaKey) && ev.button === 0) {
+    if (inRoom(c.col, c.row)) teleport(S.room.area, S.room.room, c.col * 8 + 4, c.row * 8 + 6);
+    return;
+  }
   if (S.tool === "pick") { const h = cellHeight(c.row * SIDE + c.col); $("setValue").value = h; toast(`Висота ${h}`); return; }
   if (S.tool === "tile") { applySel(sameTileCells(c), mode); return; }
   if (S.tool === "wand") { applySel(wandCells(c), mode); return; }
@@ -1063,16 +1114,33 @@ function updateHover() {
 }
 
 /* ===== Keys ===== */
+/* Shortcuts go by the physical key, so they work on any layout (Ctrl+Z is
+ * Ctrl+Я on a Ukrainian one). */
+function keyName(ev) {
+  const c = ev.code || "";
+  if (c.startsWith("Key")) return c.slice(3).toLowerCase();
+  if (c.startsWith("Digit")) return c.slice(5);
+  if (c === "Equal" || c === "NumpadAdd") return "+";
+  if (c === "Minus" || c === "NumpadSubtract") return "-";
+  if (c === "Space") return " ";
+  return (ev.key || "").toLowerCase();
+}
 window.addEventListener("keydown", ev => {
-  if (ev.target.tagName === "INPUT" && ev.target.type !== "checkbox" && ev.key !== "Escape") { if (ev.key === "Enter" && ev.target.id === "setValue") setSelHeight(+ev.target.value); return; }
-  const k = ev.key.toLowerCase();
+  const typing = ev.target.tagName === "INPUT" && (ev.target.type === "text" || ev.target.type === "search");
+  const numberField = ev.target.tagName === "INPUT" && ev.target.type === "number";
+  if (ev.key === "Enter" && ev.target.id === "setValue") { setSelHeight(+ev.target.value); return; }
+  if (typing && ev.key !== "Escape") return;
+  const k = keyName(ev);
   if (ev.ctrlKey || ev.metaKey) {
     if (k === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }
     else if (k === "y") { ev.preventDefault(); redo(); }
+    else if (k === "c") { ev.preventDefault(); copySel(); }
+    else if (k === "v") { ev.preventDefault(); pasteAtHover(); }
     else if (k === "a" && S.room) { ev.preventDefault(); const cells = []; for (let row = 0; row < S.room.rows; ++row) for (let col = 0; col < S.room.cols; ++col) cells.push(row * SIDE + col); applySel(cells, "replace"); }
     else if (k === "s") { ev.preventDefault(); saveOnConsole(); }
     return;
   }
+  if (numberField && (/^\d$/.test(k) || k === "-" || k === "+" || k.startsWith("arrow") || k === "backspace" || k === "delete")) return;
   if (k === " ") { S.spaceDown = true; ev.preventDefault(); return; }
   const tools = { r: "rect", b: "brush", l: "lasso", w: "wand", t: "tile", i: "pick", e: "entity", h: "pan" };
   if (tools[k]) return setTool(tools[k]);
@@ -1088,7 +1156,7 @@ window.addEventListener("keydown", ev => {
   else if (k === "g") toggle("showGrid"); else if (k === "c") toggle("showHeat"); else if (k === "p") toggle("preview3d");
   else if (k === "f1") { ev.preventDefault(); $("helpDlg").showModal(); }
 });
-window.addEventListener("keyup", ev => { if (ev.key === " ") S.spaceDown = false; });
+window.addEventListener("keyup", ev => { if (ev.code === "Space") S.spaceDown = false; });
 function toggle(id) { $(id).checked = !$(id).checked; $(id).dispatchEvent(new Event("change")); }
 function setTool(t) { S.tool = t; for (const b of document.querySelectorAll("[data-tool]")) b.classList.toggle("on", b.dataset.tool === t); view.style.cursor = t === "pan" ? "grab" : "crosshair"; }
 function setLayers(l) { S.layers = l; for (const b of document.querySelectorAll("[data-layer]")) b.classList.toggle("on", +b.dataset.layer === l); updateSelInfo(); draw(); }
@@ -1386,6 +1454,32 @@ async function selfTest() {
     /* Selection shows on the console. */
     applySel(rectCells({ col: 2, row: 2 }, { col: 4, row: 3 }), "replace"); await wait(400);
     ok(true, "selection sent (check the top screen)");
+    /* Keys by physical code, copy and paste, undo. */
+    applySel(rectCells({ col: 3, row: 3 }, { col: 4, row: 3 }), "replace"); setLayers(LAYER_BOTTOM); setSelHeight(5);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyC", key: "с", ctrlKey: true }));
+    S.hover = { col: 10, row: 12 };
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", key: "м", ctrlKey: true }));
+    ok(S.heights.bottom[12 * SIDE + 10] === 5 && S.heights.bottom[12 * SIDE + 11] === 5, "Ctrl+C / Ctrl+V on a Ukrainian layout paste heights");
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", key: "я", ctrlKey: true }));
+    ok(S.heights.bottom[12 * SIDE + 10] !== 5, "Ctrl+Z (Ctrl+Я) undoes the paste");
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyY", key: "н", ctrlKey: true }));
+    ok(S.heights.bottom[12 * SIDE + 10] === 5, "Ctrl+Y (Ctrl+Н) redoes it");
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", key: "Я", ctrlKey: true, shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", key: "я", ctrlKey: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", key: "я", ctrlKey: true }));
+    ok(!S.edits.room(a, r, false) || !(S.edits.room(a, r, false).flags[0][3 * SIDE + 3] & CELL_HAS), "undo back to before the set");
+    S.edits.rooms.delete(roomKey(a, r)); S.dirtyRooms.add(roomKey(a, r)); await pushPending();
+    /* Link anywhere: a cell well away from where he stands. */
+    const target = { col: (S.room.cols >> 1) + 3, row: (S.room.rows >> 1) + 2 };
+    {
+      const rect = view.getBoundingClientRect();
+      view.dispatchEvent(new MouseEvent("mousedown", { button: 0, ctrlKey: true, bubbles: true,
+        clientX: rect.left + S.panX + (target.col * 8 + 4) * S.zoom, clientY: rect.top + S.panY + (target.row * 8 + 4) * S.zoom }));
+      window.dispatchEvent(new MouseEvent("mouseup", { button: 0 }));
+    }
+    let at = null;
+    for (let i = 0; i < 30; ++i) { await wait(250); const st = await api("/status", { json: true }); if (!st.transition && !st.fade && st.area === a && st.room === r) { at = st; if (Math.abs((st.linkX >> 3) - target.col) <= 1 && Math.abs((st.linkY >> 3) - target.row) <= 1) break; } }
+    ok(at && Math.abs((at.linkX >> 3) - target.col) <= 1 && Math.abs((at.linkY >> 3) - target.row) <= 1, `Ctrl+click moved Link to ${target.col},${target.row}: now ${at ? (at.linkX >> 3) + "," + (at.linkY >> 3) : "?"}`);
     /* File round trip. */
     const file = S.edits.fileText(); const copy = new Edits(); copy.importText(file, 7);
     ok(copy.fileText() === file, "file text round-trips");
