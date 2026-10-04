@@ -100,6 +100,9 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
   <button id="openBtn" title="Відкрити stereo_edits.txt (замінює поточні правки)">Відкрити…</button>
   <button id="mergeBtn" title="Об'єднати з файлом іншої людини">Об'єднати…</button>
   <span class="sep"></span>
+  <button id="buildBtn" title="Залити нову збірку (.3dsx) на консоль і перезапустити гру з неї (лише з Homebrew Launcher)">Оновити гру…</button>
+  <input id="buildInput" type="file" accept=".3dsx" hidden>
+  <button id="vrBtn" title="Перегляд у шоломі (WebXR, напр. Quest 3): справжні кадри обох очей консолі, кожне своєму оку" hidden>VR</button>
   <button id="helpBtn" title="Довідка (F1)">?</button>
   <input id="fileInput" type="file" accept=".txt" hidden>
 </header>
@@ -185,7 +188,8 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <label><input type="checkbox" id="showTop" checked> верхній</label>
         <label><input type="checkbox" id="showHeat" checked> кольори висот</label>
         <label><input type="checkbox" id="showGrid" checked> сітка</label>
-        <label><input type="checkbox" id="showEntities" checked> спрайти</label>
+        <label title="Спрайти гри: меблі, рами дверей тощо — як були в кадрі консолі, коли кімнату знято"><input type="checkbox" id="showSprites" checked> спрайти гри</label>
+        <label title="Рамки об'єктів кімнати для вибору й правок глибини"><input type="checkbox" id="showEntities" checked> рамки об'єктів</label>
         <label><input type="checkbox" id="showAuto"> лише автоматика</label>
       </div>
       <div class="row">
@@ -225,6 +229,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
   <p><b>Правила плиток</b> — найшвидший шлях: виділіть, наприклад, дерево, і «Правило: = 2» підніме всі такі дерева в грі. Для винятків правте клітинки кімнати.</p>
   <p><b>Кольори:</b> рівень землі прозорий, нижче — синій, вище — зелений → жовтий → помаранчевий → червоний → фіолетовий. Біла смужка — клітинка з правкою, блакитна рамка — правило плитки.</p>
   <p><b>Кілька людей:</b> кожен зберігає свій файл; «Об'єднати…» зливає чужий файл з вашим і показує спірні клітинки.</p>
+  <p><b>VR (Quest 3 тощо):</b> відкрийте в браузері шолома адресу консолі, напр. <code>http://192.168.50.125:8333/</code> — сторінку віддає сама гра. WebXR потребує «безпечної» адреси: у браузері Quest відкрийте <code>chrome://flags</code>, знайдіть «Insecure origins treated as secure», впишіть туди <code>http://192.168.50.125:8333</code>, увімкніть і перезапустіть браузер. Тоді з'явиться кнопка «VR». У шоломі: правий стік вгору/вниз — ближче/далі, вліво/вправо — більше/менше; кнопка B — вийти.</p>
   <p class="muted small">Кімнати, які ви вже відкривали, зберігаються в браузері — з ними можна працювати й без консолі, а потім надіслати правки.</p>
   <form method="dialog"><button>Зрозуміло</button></form>
 </dialog>
@@ -366,6 +371,17 @@ function parseRoom(buf) {
   r.hash = [new Uint32Array(buf.slice(off, off + 16384)), new Uint32Array(buf.slice(off + 16384, off + 32768))]; off += 32768;
   r.entities = [];
   for (let i = 0; i < r.entityCount; ++i, off += 12) r.entities.push({ kind: u8[off], id: u8[off + 1], type: u8[off + 2], type2: u8[off + 3], x: dv.getInt16(off + 4, true), y: dv.getInt16(off + 6, true), z: dv.getInt16(off + 8, true) });
+  /* Sprites as drawn when the room was taken (newer consoles send them). */
+  if (off + 8 + 0x400 + 0x8000 + 0x200 <= buf.byteLength && String.fromCharCode(u8[off], u8[off + 1], u8[off + 2], u8[off + 3]) === "OAMS") {
+    r.dispcnt = dv.getUint16(off + 4, true); off += 8;
+    r.oam = new Uint16Array(buf.slice(off, off + 0x400)); off += 0x400;
+    r.objVram = new Uint8Array(buf.slice(off, off + 0x8000)); off += 0x8000;
+    r.objPalette = new Uint16Array(buf.slice(off, off + 0x200)); off += 0x200;
+  }
+  if (off + 4 + 2 * 8192 <= buf.byteLength && String.fromCharCode(u8[off], u8[off + 1], u8[off + 2], u8[off + 3]) === "RIDX") {
+    off += 4;
+    r.drawIndex = [new Uint16Array(buf.slice(off, off + 8192)), new Uint16Array(buf.slice(off + 8192, off + 16384))]; off += 16384;
+  }
   r.buffer = buf;
   return r;
 }
@@ -377,7 +393,7 @@ function renderLayer(r, L) {
   const base = ((bgcnt >> 2) & 3) * 0x4000, lay = r.layers[L], pal = [...r.palette].map(rgb555);
   const tw = r.width >> 4, th = r.height >> 4;
   for (let ty = 0; ty < th; ++ty) for (let tx = 0; tx < tw; ++tx) {
-    const idx = lay.map[tx | (ty << 6)] & 2047;
+    const idx = r.drawIndex ? r.drawIndex[L][tx | (ty << 6)] & 2047 : lay.map[tx | (ty << 6)] & 2047;
     for (let q = 0; q < 4; ++q) {
       const e = lay.sub[idx * 4 + q], tile = e & 0x3ff, hf = (e >> 10) & 1, vf = (e >> 11) & 1, pb = (e >> 12) * 16;
       const a = base + tile * 32;
@@ -393,6 +409,56 @@ function renderLayer(r, L) {
   }
   ctx.putImageData(img, 0, 0);
   return cv;
+}
+
+/* The sprites of the OAM snapshot, one room-sized canvas per priority (0 the
+ * nearest), placed by the camera the room was taken at. */
+const OBJ_SIZES = [[[8, 8], [16, 16], [32, 32], [64, 64]], [[16, 8], [32, 8], [32, 16], [64, 32]], [[8, 16], [8, 32], [16, 32], [32, 64]]];
+function renderSprites(r) {
+  const out = [0, 1, 2, 3].map(() => { const c = document.createElement("canvas"); c.width = r.width; c.height = r.height; return c; });
+  if (!r.oam) return out;
+  const images = out.map(c => c.getContext("2d").createImageData(r.width, r.height));
+  const pal = [...r.objPalette].map(rgb555), oneD = (r.dispcnt & 0x40) !== 0;
+  const camX = r.scrollX - r.originX, camY = r.scrollY - r.originY;
+  for (let i = 127; i >= 0; --i) {
+    const a0 = r.oam[i * 4], a1 = r.oam[i * 4 + 1], a2 = r.oam[i * 4 + 2];
+    const affine = (a0 & 0x100) !== 0, doubleSize = (a0 & 0x200) !== 0;
+    if (!affine && doubleSize) continue; /* hidden */
+    const gfx = (a0 >> 10) & 3; if (gfx === 2 || gfx === 3) continue; /* window, prohibited */
+    const shape = a0 >> 14; if (shape === 3) continue;
+    const [w, h] = OBJ_SIZES[shape][a1 >> 14];
+    let x = a1 & 511; if (x & 256) x -= 512;
+    let y = a0 & 255; if (y >= 160) y -= 256;
+    if (affine && doubleSize) { x += w / 2; y += h / 2; }
+    const hf = !affine && (a1 & 0x1000), vf = !affine && (a1 & 0x2000), c256 = (a0 & 0x2000) !== 0;
+    const tile = a2 & 0x3ff, prio = (a2 >> 10) & 3, bank = (a2 >> 12) * 16, alpha = gfx === 1 ? 160 : 255;
+    if (prio === 0) continue; /* the HUD: hearts, buttons, rupees */
+    const img = images[prio], step = c256 ? 2 : 1;
+    for (let py = 0; py < h; ++py) for (let px = 0; px < w; ++px) {
+      const sx = hf ? w - 1 - px : px, sy = vf ? h - 1 - py : py;
+      const t = oneD ? tile + ((sy >> 3) * (w >> 3) + (sx >> 3)) * step : tile + (sy >> 3) * 32 + (sx >> 3) * step;
+      let ci;
+      if (c256) { ci = r.objVram[(t * 32 + (sy & 7) * 8 + (sx & 7)) & 0x7fff]; }
+      else { const b = r.objVram[(t * 32 + (sy & 7) * 4 + ((sx & 7) >> 1)) & 0x7fff]; ci = (sx & 1) ? b >> 4 : b & 15; }
+      if (!ci) continue;
+      const rx = camX + x + px, ry = camY + y + py;
+      if (rx < 0 || ry < 0 || rx >= r.width || ry >= r.height) continue;
+      const c = pal[c256 ? ci : bank + ci], o = (ry * r.width + rx) * 4;
+      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = alpha;
+    }
+  }
+  /* Entries go from 127 to 0, so the lower index -- the nearer -- wins. */
+  return out.map((c, p) => { c.getContext("2d").putImageData(images[p], 0, 0); return c; });
+}
+/* Backgrounds and sprites stacked as the GBA does: priority 3 first; at one
+ * priority the bottom map, the top map, then sprites. */
+function drawRoomPicture(g, r, layers, sprites, x0, y0) {
+  g.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; g.fillRect(x0, y0, r.width, r.height);
+  for (let p = 3; p >= 0; --p) {
+    if ($("showBottom").checked && r.bg[0] && (r.bg[0] & 3) === p) g.drawImage(layers[0], x0, y0);
+    if ($("showTop").checked && r.bg[1] && (r.bg[1] & 3) === p) g.drawImage(layers[1], x0, y0);
+    if ($("showSprites").checked && sprites) g.drawImage(sprites[p], x0, y0);
+  }
 }
 
 /* ===== App state ===== */
@@ -640,6 +706,7 @@ function showRoom(room) {
   const sameRoom = S.room && S.room.area === room.area && S.room.room === room.room;
   S.room = room;
   S.layerImg = [renderLayer(room, 0), renderLayer(room, 1)];
+  S.spriteImg = renderSprites(room);
   if (!sameRoom) { S.selection.fill(0); S.selCount = 0; S.selEntity = null; S.undo = []; S.redo = []; fitView(); }
   $("empty").style.display = "none";
   recompute(); updateSelInfo(); renderEntities(); renderRules(); draw(); markCurrentRoomInTree();
@@ -665,11 +732,7 @@ function draw() {
   ctx.setTransform(S.zoom, 0, 0, S.zoom, S.panX, S.panY);
   const [c0, c1] = rgb555(r.palette[0]);
   if ($("preview3d").checked) { drawAnaglyph(); }
-  else {
-    ctx.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; ctx.fillRect(0, 0, r.width, r.height);
-    if ($("showBottom").checked) ctx.drawImage(S.layerImg[0], 0, 0);
-    if ($("showTop").checked) ctx.drawImage(S.layerImg[1], 0, 0);
-  }
+  else drawRoomPicture(ctx, r, S.layerImg, S.spriteImg, 0, 0);
   /* Visible cells only. */
   const vx0 = Math.max(0, Math.floor(-S.panX / S.zoom / 8)), vy0 = Math.max(0, Math.floor(-S.panY / S.zoom / 8));
   const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
@@ -1228,7 +1291,7 @@ async function areaRoom(a, r) {
   const buf = S.room && S.room.area === a && S.room.room === r ? S.room.buffer : await dbGet("rooms", k);
   if (!buf) return null;
   const room = parseRoom(buf);
-  const entry = { room, layers: [renderLayer(room, 0), renderLayer(room, 1)] };
+  const entry = { room, layers: [renderLayer(room, 0), renderLayer(room, 1)], sprites: renderSprites(room) };
   areaCache.set(k, entry);
   return entry;
 }
@@ -1268,9 +1331,7 @@ function drawArea() {
   for (const r of areaRooms()) {
     const e = A.entries.get(r.room);
     if (e) {
-      ctx.fillStyle = `rgb(${rgb555(e.room.palette[0]).join(",")})`; ctx.fillRect(r.mapX, r.mapY, r.w, r.h);
-      if ($("showBottom").checked) ctx.drawImage(e.layers[0], r.mapX, r.mapY);
-      if ($("showTop").checked) ctx.drawImage(e.layers[1], r.mapX, r.mapY);
+      drawRoomPicture(ctx, e.room, e.layers, e.sprites, r.mapX, r.mapY);
       if ($("showHeat").checked) ctx.drawImage(A.heat.get(r.room), r.mapX, r.mapY);
     } else { ctx.fillStyle = "#22262e"; ctx.fillRect(r.mapX, r.mapY, r.w, r.h); }
     const current = S.room && S.room.area === r.area && S.room.room === r.room, hover = A.hover === r.room;
@@ -1352,6 +1413,114 @@ function drawLive(buf) {
   cv.width = tmp.width * scale; cv.height = tmp.height * scale; g.imageSmoothingEnabled = false; g.drawImage(tmp, 0, 0, cv.width, cv.height);
 }
 
+/* ===== VR: the console's two eyes, each to its own eye of a headset ===== */
+const VR = { session: null, gl: null, prog: null, tex: [null, null], buf: null, ref: null, dist: 1.6, width: 1.5, fetching: false, frames: 0 };
+async function vrSupported() {
+  /* Some browsers never answer without a headset. */
+  const timeout = new Promise(res => setTimeout(() => res(false), 1500));
+  try { return !!(navigator.xr && await Promise.race([navigator.xr.isSessionSupported("immersive-vr"), timeout])); } catch (e) { return false; }
+}
+function vrMakeGl() {
+  const canvas = document.createElement("canvas");
+  const gl = canvas.getContext("webgl", { xrCompatible: true, antialias: false });
+  const shader = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, "attribute vec2 p; uniform mat4 m; varying vec2 uv; void main(){ uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = m * vec4(p, 0.0, 1.0); }"));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, "precision mediump float; varying vec2 uv; uniform sampler2D t; void main(){ gl_FragColor = texture2D(t, uv); }"));
+  gl.linkProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const tex = [0, 1].map(() => {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([20, 20, 20, 255]));
+    return t;
+  });
+  Object.assign(VR, { gl, prog, buf, tex });
+}
+/* Column-major 4x4 helpers. */
+function mat4Mul(a, b) { const o = new Float32Array(16); for (let c = 0; c < 4; ++c) for (let r = 0; r < 4; ++r) { let s = 0; for (let k = 0; k < 4; ++k) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; }
+function vrScreenMatrix() {
+  /* The 240x160 (3:2) picture as a screen VR.width wide, VR.dist in front of where the head started. */
+  const halfW = VR.width / 2, halfH = VR.width / 3;
+  return new Float32Array([halfW, 0, 0, 0, 0, halfH, 0, 0, 0, 0, 1, 0, 0, 0, -VR.dist, 1]);
+}
+async function vrFetchLoop() {
+  while (VR.session) {
+    if (!S.connected) { await new Promise(r => setTimeout(r, 500)); continue; }
+    try {
+      const buf = await api("/frame", { binary: true, timeout: 4000 });
+      const dv = new DataView(buf), w = dv.getUint16(4, true), h = dv.getUint16(6, true), gl = VR.gl;
+      for (let eye = 0; eye < 2; ++eye) {
+        const px = new Uint8Array(w * h * 4);
+        for (let i = 0; i < w * h; ++i) { const p = dv.getUint16(8 + (eye * w * h + i) * 2, true); px[i * 4] = ((p >> 11) & 31) << 3; px[i * 4 + 1] = ((p >> 6) & 31) << 3; px[i * 4 + 2] = ((p >> 1) & 31) << 3; px[i * 4 + 3] = 255; }
+        gl.bindTexture(gl.TEXTURE_2D, VR.tex[eye]); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      }
+      ++VR.frames;
+    } catch (e) { await new Promise(r => setTimeout(r, 400)); }
+  }
+}
+function vrFrame(time, frame) {
+  const session = frame.session; session.requestAnimationFrame(vrFrame);
+  const pose = frame.getViewerPose(VR.ref); if (!pose) return;
+  for (const src of session.inputSources) {
+    const gp = src.gamepad; if (!gp) continue;
+    if (src.handedness === "right" && gp.axes.length >= 4) {
+      VR.dist = clamp(VR.dist + gp.axes[3] * 0.02, 0.4, 6);
+      VR.width = clamp(VR.width - gp.axes[2] * 0.02, 0.3, 6);
+      if (gp.buttons[5] && gp.buttons[5].pressed) { session.end(); return; }
+    }
+  }
+  const gl = VR.gl, layer = session.renderState.baseLayer;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+  gl.clearColor(0.05, 0.05, 0.06, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(VR.prog);
+  const loc = gl.getAttribLocation(VR.prog, "p"); gl.bindBuffer(gl.ARRAY_BUFFER, VR.buf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const model = vrScreenMatrix();
+  for (const v of pose.views) {
+    const vp = layer.getViewport(v); gl.viewport(vp.x, vp.y, vp.width, vp.height);
+    const m = mat4Mul(v.projectionMatrix, mat4Mul(v.transform.inverse.matrix, model));
+    gl.uniformMatrix4fv(gl.getUniformLocation(VR.prog, "m"), false, m);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, VR.tex[v.eye === "right" ? 1 : 0]);
+    gl.uniform1i(gl.getUniformLocation(VR.prog, "t"), 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+}
+async function vrStart() {
+  if (VR.session) { VR.session.end(); return; }
+  if (!S.connected) { toast("Спершу підключіться до консолі"); return; }
+  try {
+    if (!VR.gl) vrMakeGl();
+    const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
+    VR.session = session;
+    await VR.gl.makeXRCompatible?.();
+    session.updateRenderState({ baseLayer: new XRWebGLLayer(session, VR.gl) });
+    VR.ref = await session.requestReferenceSpace("local");
+    session.addEventListener("end", () => { VR.session = null; $("vrBtn").classList.remove("on"); });
+    $("vrBtn").classList.add("on");
+    session.requestAnimationFrame(vrFrame);
+    vrFetchLoop();
+  } catch (e) { VR.session = null; toast("VR не запустився: " + e.message); }
+}
+
+/* ===== A new build onto the console, then start it ===== */
+function uploadBuild(file) {
+  if (!S.connected) { toast("Спершу підключіться до консолі"); return; }
+  const name = file.name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/(\.3dsx)?$/i, ".3dsx");
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `${S.base}/file?name=${encodeURIComponent(name)}`);
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $("pending").textContent = `заливаю ${name}: ${Math.round(e.loaded * 100 / e.total)}%`; };
+  xhr.onload = async () => {
+    if (xhr.status !== 200) { toast("Не залилось: " + xhr.responseText); return; }
+    $("pending").textContent = `${name} на консолі; перезапускаю…`;
+    try { await api(`/relaunch?name=${encodeURIComponent(name)}`, { method: "POST", body: "" }); toast("Гра перезапускається з " + name + ". Увімкніть Редактор ПК знову й підключіться."); S.connected = false; setChip("перезапуск…", "warn"); }
+    catch (e) { toast("Залито, але перезапустити не вдалося (" + e.message.replace(/^\d+ /, "") + ") — запустіть " + name + " вручну"); }
+  };
+  xhr.onerror = () => toast("Обрив під час заливання");
+  xhr.send(file);
+}
+
 /* ===== Wiring ===== */
 for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
 for (const b of document.querySelectorAll("[data-layer]")) b.onclick = () => setLayers(+b.dataset.layer);
@@ -1369,8 +1538,11 @@ $("saveBtn").onclick = saveOnConsole; $("downloadBtn").onclick = download;
 $("openBtn").onclick = () => pickFile("open"); $("mergeBtn").onclick = () => pickFile("merge");
 $("mergeMine").onclick = () => finishMerge(false); $("mergeTheirs").onclick = () => finishMerge(true);
 $("helpBtn").onclick = () => $("helpDlg").showModal();
+$("vrBtn").onclick = vrStart;
+$("buildBtn").onclick = () => { $("buildInput").value = ""; $("buildInput").click(); };
+$("buildInput").addEventListener("change", () => { const f = $("buildInput").files[0]; if (f) uploadBuild(f); });
 $("roomSearch").addEventListener("input", renderRoomTree);
-for (const id of ["showBottom", "showTop", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", draw);
+for (const id of ["showBottom", "showTop", "showSprites", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", draw);
 $("showAuto").addEventListener("change", () => { recompute(); updateSelInfo(); draw(); });
 $("areaBtn").onclick = () => toggleArea();
 $("crawlAreaBtn").onclick = () => { const a = S.room ? S.room.area : S.status ? S.status.area : 0; crawl(S.rooms.filter(r => r.area === a)); };
@@ -1382,6 +1554,10 @@ setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */
 (async function init() {
   setTool("rect"); setLayers(LAYER_BOTH); buildLegend(); resize();
   $("addr").value = localStorage.getItem("tmc-addr") || "localhost";
+  /* Opened from the console itself (http://console:8333/): that is the address. */
+  const servedByConsole = location.protocol === "http:" && location.port === String(PORT);
+  if (servedByConsole) $("addr").value = location.hostname;
+  vrSupported().then(ok => { if (ok) $("vrBtn").hidden = false; });
   await dbOpen();
   for (const k of await dbKeys("rooms")) cachedRooms.add(k);
   const saved = await dbGet("kv", "edits"); if (saved) S.edits.importText(saved, 7);
@@ -1391,7 +1567,7 @@ setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */
   if (S.dirtyRooms.size || S.rulesDirty || S.entitiesDirty) $("pending").textContent = "є неперенесені на консоль зміни";
   const params = new URLSearchParams(location.search);
   if (params.get("addr")) { $("addr").value = params.get("addr"); }
-  if (params.has("connect")) await connect();
+  if (params.has("connect") || servedByConsole) await connect();
   if (params.has("crawlarea") && S.connected) { const a = S.room ? S.room.area : 0; await crawl(S.rooms.filter(r => r.area === a)); }
   if (params.has("areaview")) await toggleArea(true);
   if (params.has("live")) { $("liveOn").checked = true; $("liveOn").dispatchEvent(new Event("change")); }

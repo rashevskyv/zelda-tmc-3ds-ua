@@ -201,6 +201,8 @@ void Platform3DS_Shutdown(void) {
 }
 
 bool Platform3DS_IsRunning(void) { return sRunning; }
+/* Leave as if closed from the HOME menu (the PC editor's relaunch). */
+void Platform3DS_RequestQuit(void) { sRunning = false; }
 bool Platform3DS_IsNew3DS(void) { return sIsNew3DS; }
 bool Platform3DS_CanUseCore1(void) { return sCore1Available; }
 unsigned Platform3DS_Core1TimeLimit(void) { return sCore1TimeLimit; }

@@ -8,6 +8,7 @@
  * entities), sends Link to other rooms, replaces the corrections and sees
  * them at once in 3D, and points at cells, which the top screen then frames.
  *
+ *   GET  /                           the PC editor page itself (from romfs)
  *   GET  /status                     where the game is, as JSON
  *   GET  /rooms                      every room of every area, as JSON
  *   GET  /room                       the current room, binary (see the editor)
@@ -28,6 +29,9 @@
  *                                    "row col0 col1" lines, empty to clear
  *   POST /save                       write stereo_edits.txt
  *   POST /file?name=x.3dsx           a new build into sdmc:/3ds/ (3DSX only)
+ *   POST /remove?name=x.3dsx         delete an old build from sdmc:/3ds/
+ *   POST /relaunch?name=x.3dsx       quit and start that build (from the
+ *                                    Homebrew Launcher only)
  *
  * Every answer allows any origin, so the page can be opened from a file.
  */
@@ -66,6 +70,11 @@ bool PortStereoLink_FrameReady(const uint16_t** left, const uint16_t** right, un
 
 /* Platform: the bottom screen's painted image, 320x240 ABGR words. */
 bool PortStereoLink_BottomImage(const uint32_t** pixels, unsigned* pitch);
+
+/* Platform: start sdmc:/3ds/<name> next (200; 404 no such file; 409 not run
+ * from the Homebrew Launcher), and leave the game. */
+int PortStereoLink_Relaunch(const char* name);
+void PortStereoLink_Quit(void);
 
 /* Platform: bring the network up (returns the address, host order) or down. */
 bool PortStereoLink_NetUp(uint32_t* address);

@@ -36,6 +36,9 @@ cmake -S "${ROOT}/platform/3ds" -B "${BUILD}" \
   -DCMAKE_TOOLCHAIN_FILE="${DEVKITPRO}/cmake/3DS.cmake" \
   -DCMAKE_BUILD_TYPE=Release \
   -DUPDATE_DEPS_ROOT="${UPDATE_DEPS_ROOT:-${DEVKITPRO}/portlibs/3ds}"
+# The 3DSX and CIA do not depend on romfs contents (the PC stereo editor page
+# lives there); drop them so they are always packed again.
+rm -f "${BUILD}"/tmc-3ds-v*.3dsx "${BUILD}"/tmc-3ds-v*.cia
 cmake --build "${BUILD}" --parallel "${TMC3DS_JOBS:-4}"
 
 if [[ ! -x "${MAKEROM}" || ! -x "${BANNERTOOL}" ]]; then

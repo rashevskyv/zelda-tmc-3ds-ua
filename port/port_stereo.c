@@ -166,9 +166,24 @@ static u32 TilesetKey(void) {
     return key;
 }
 
+extern u32 GetTileSetIndexForSpecialTile(u32 tilePosAndLayer, u32 tileIndex);
+
+u32 Port_Stereo_TileDrawIndex(int layer, u32 tilePos) {
+    const MapLayer* map = layer ? &gMapTop : &gMapBottom;
+    const u32 value = map->mapData[tilePos];
+    if (value < 0x4000) {
+        return value & (TILESET_SIZE - 1);
+    }
+    /* Special tiles (chests, pots, switches) draw what the room's tile
+     * entities say, or the tile they replaced (RenderMapLayerToSubTileMap). */
+    return (GetTileSetIndexForSpecialTile(((u32)(layer + 1) << 12) | tilePos, map->mapDataOriginal[tilePos]) / 4) &
+           (TILESET_SIZE - 1);
+}
+
 /* The rule key of every map tile in the room, 0 for a layer that is not
  * shown. Tiles repeat, so each tile index is hashed once. */
 static void HashTiles(const MapLayer* layer, u32 tilesetKey, u32* hashes) {
+    const int layerIndex = layer == &gMapTop;
     static u32 sByIndex[TILESET_SIZE];
     static u8 sDone[TILESET_SIZE];
     memset(hashes, 0, sizeof(u32) * 64 * 64);
@@ -179,7 +194,7 @@ static void HashTiles(const MapLayer* layer, u32 tilesetKey, u32* hashes) {
     const int tilesW = (sCols + 1) / 2, tilesH = (sRows + 1) / 2;
     for (int ty = 0; ty < tilesH && ty < 64; ++ty) {
         for (int tx = 0; tx < tilesW && tx < 64; ++tx) {
-            const u32 index = layer->mapData[tx | (ty << 6)] & (TILESET_SIZE - 1);
+            const u32 index = Port_Stereo_TileDrawIndex(layerIndex, (u32)(tx | (ty << 6)));
             if (!sDone[index]) {
                 sByIndex[index] = PortStereoEdits_TileHash(&layer->subTiles[index * 4], tilesetKey);
                 sDone[index] = 1;

@@ -74,5 +74,8 @@ typedef struct PortStereoRoomView {
     const u32* tileHash[2];
 } PortStereoRoomView;
 bool32 Port_Stereo_RoomView(PortStereoRoomView* view);
+/* The tile set entry a map tile is drawn with (layer 0 bottom, 1 top), special
+ * tiles resolved as the game draws them. */
+u32 Port_Stereo_TileDrawIndex(int layer, u32 tilePos);
 
 #endif /* PORT_STEREO_H */

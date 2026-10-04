@@ -187,6 +187,9 @@ endif()
 set(TMC_ROMFS "${CMAKE_CURRENT_BINARY_DIR}/romfs")
 file(MAKE_DIRECTORY "${TMC_ROMFS}")
 configure_file("${CMAKE_CURRENT_LIST_DIR}/romfs/update-ca.pem" "${TMC_ROMFS}/update-ca.pem" COPYONLY)
+# The PC stereo editor, served by the game's stereo link at "/" so a headset
+# browser can open it straight from the console.
+configure_file("${TMC_ROOT}/tools/stereo_editor/index.html" "${TMC_ROMFS}/stereo_editor.html" COPYONLY)
 configure_file(
     "${CMAKE_CURRENT_LIST_DIR}/romfs/splash.rgb565"
     "${TMC_ROMFS}/splash.rgb565"

@@ -24,6 +24,10 @@
  *      u32 tileHash[2][64*64]
  *      entities: u8 kind, id, type, type2; s16 x, y, z (room pixels); s8 depth
  *        correction; u8 pad   (12 bytes each)
+ *      "OAMS", u16 DISPCNT, u16 0, OAM[0x400] (screen coordinates at the
+ *        camera above), OBJ tiles[0x8000], OBJ palette u16[256]
+ *      "RIDX", u16 drawIndex[2][64*64]: the tile set entry each map tile is
+ *        drawn with (special tiles resolved)
  */
 #include "port_stereo_link.h"
 #include "port_stereo.h"
@@ -54,6 +58,10 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#ifndef PORT_STEREO_LINK_EDITOR_PAGE
+#define PORT_STEREO_LINK_EDITOR_PAGE "romfs:/stereo_editor.html"
+#endif
 
 /* Areas 0x00..0x8F, as port_rom.c resolves them. */
 #define LINK_AREA_COUNT 0x90
@@ -89,6 +97,7 @@ static uint32_t sAddress;
 static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
+static unsigned sQuitIn;
 
 /* Cells the editor points at: area << 8 | room, and runs of a row. */
 static int sHighlightRoom = -1;
@@ -446,6 +455,22 @@ static void AnswerRoom(Client* client) {
     Put(&b, view.tileHash[1], sizeof(u32) * 64 * 64);
     EntityOut entities = { &b, 0, false };
     VisitEntities(&entities);
+    /* The sprites as drawn this frame: furniture, door frames and the like
+     * are objects, not map tiles. */
+    Put(&b, "OAMS", 4);
+    PutU16(&b, (unsigned)(gIoMem[0] | (gIoMem[1] << 8)));
+    PutU16(&b, 0);
+    Put(&b, gOamMem, 0x400);
+    Put(&b, gVram + 0x10000, 0x8000);
+    Put(&b, gPaletteBuffer + 256, 0x200);
+    /* What each map tile is drawn with: special tiles (0x4000 and up) are
+     * not plain tile set entries. */
+    Put(&b, "RIDX", 4);
+    for (int layer = 0; layer < 2; ++layer) {
+        for (u32 pos = 0; pos < 64 * 64; ++pos) {
+            PutU16(&b, Port_Stereo_TileDrawIndex(layer, pos));
+        }
+    }
     RespondBuffer(client, "application/octet-stream", &b);
 }
 
@@ -536,6 +561,34 @@ static void AnswerFile(Client* client, const char* query, const char* body, size
     }
     remove(path);
     RespondText(client, rename(temp, path) == 0 ? 200 : 400, "ok");
+}
+
+/* GET /: the PC editor itself, packed into romfs by the build, so a browser
+ * (a headset's, say) can open it from the console with nothing on a PC. */
+static void AnswerEditorPage(Client* client) {
+    static char* page;
+    static size_t pageLength;
+    if (page == NULL) {
+        FILE* file = fopen(PORT_STEREO_LINK_EDITOR_PAGE, "rb");
+        if (file != NULL) {
+            fseek(file, 0, SEEK_END);
+            const long length = ftell(file);
+            fseek(file, 0, SEEK_SET);
+            page = length > 0 ? malloc((size_t)length) : NULL;
+            if (page != NULL && fread(page, 1, (size_t)length, file) == (size_t)length) {
+                pageLength = (size_t)length;
+            } else {
+                free(page);
+                page = NULL;
+            }
+            fclose(file);
+        }
+    }
+    if (page == NULL) {
+        RespondText(client, 200, "The Minish Cap 3DS - stereo 3D link. Open the PC editor and connect here.");
+        return;
+    }
+    Respond(client, 200, "text/html; charset=utf-8", page, pageLength);
 }
 
 static void AnswerSelect(Client* client, const char* query, const char* body, size_t bodyLength) {
@@ -669,11 +722,36 @@ static void Answer(Client* client) {
         AnswerSelect(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/file") == 0) {
         AnswerFile(client, query, body, bodyLength);
+    } else if (post && strcmp(target, "/remove") == 0) {
+        /* An old test build off the card; never the one running (romfs). */
+        char name[64] = { 0 }, path[96];
+        const char* at = query ? strstr(query, "name=") : NULL;
+        if (at != NULL) {
+            sscanf(at + 5, "%63[A-Za-z0-9._-]", name);
+        }
+        const size_t n = strlen(name);
+        snprintf(path, sizeof(path), "sdmc:/3ds/%s", name);
+        const bool ok = n > 5 && strcmp(name + n - 5, ".3dsx") == 0 && remove(path) == 0;
+        RespondText(client, ok ? 200 : 400, ok ? "ok" : "cannot remove");
+    } else if (post && strcmp(target, "/relaunch") == 0) {
+        char name[64] = { 0 };
+        const char* at = query ? strstr(query, "name=") : NULL;
+        if (at != NULL) {
+            sscanf(at + 5, "%63[A-Za-z0-9._-]", name);
+        }
+        const size_t n = strlen(name);
+        const int status = n > 5 && strcmp(name + n - 5, ".3dsx") == 0 ? PortStereoLink_Relaunch(name) : 400;
+        if (status == 200) {
+            PortStereoEdits_Save();
+            sQuitIn = 45; /* let this answer leave first */
+        }
+        RespondText(client, status, status == 200 ? "ok, restarting" : status == 404 ? "no such file"
+                                    : status == 409 ? "not from the Homebrew Launcher" : "cannot");
     } else if (post && strcmp(target, "/save") == 0) {
         const bool saved = PortStereoEdits_Save();
         RespondText(client, saved ? 200 : 400, saved ? "ok" : "cannot write");
-    } else if (strcmp(target, "/") == 0) {
-        RespondText(client, 200, "The Minish Cap 3DS - stereo 3D link. Open the PC editor and connect here.");
+    } else if (strcmp(target, "/") == 0 || strcmp(target, "/index.html") == 0) {
+        AnswerEditorPage(client);
     } else {
         RespondText(client, 404, "no such thing");
     }
@@ -786,6 +864,9 @@ static void ServeClient(Client* client) {
 
 void PortStereoLink_Tick(void) {
     ++sFrame;
+    if (sQuitIn != 0 && --sQuitIn == 0) {
+        PortStereoLink_Quit();
+    }
     if (!sEnabled) {
         if (sNetUp || sListen >= 0) {
             LinkStop();
@@ -820,6 +901,9 @@ void PortStereoLink_Tick(void) {
             break;
         }
         SetNonBlocking(socket);
+        /* A wider window: a 3DSX by POST /file otherwise trickles in. */
+        const int window = 256 * 1024;
+        setsockopt(socket, SOL_SOCKET, SO_RCVBUF, &window, sizeof(window));
         *free = (Client){ .socket = socket };
     }
     for (int i = 0; i < MAX_CLIENTS; ++i) {

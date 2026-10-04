@@ -8,6 +8,9 @@
 #include <malloc.h>
 #include <netinet/in.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define SOC_BUFFER_SIZE 0x100000
@@ -44,4 +47,42 @@ void PortStereoLink_NetDown(void) {
         acExit();
         sAc = false;
     }
+}
+
+/* Relaunch into another build: tell Luma's homebrew loader (hb:ldr, what the
+ * Homebrew Launcher itself uses) which 3DSX to start next, then leave; the
+ * loader starts it instead of the launcher. Only from the Homebrew Launcher. */
+extern void Platform3DS_RequestQuit(void);
+
+static Result HbldrCall(Handle handle, u32 command, const void* data, u32 size, int bufferId) {
+    u32* cmdbuf = getThreadCommandBuffer();
+    cmdbuf[0] = IPC_MakeHeader(command, 0, 2);
+    cmdbuf[1] = IPC_Desc_StaticBuffer(size, bufferId);
+    cmdbuf[2] = (u32)data;
+    Result rc = svcSendSyncRequest(handle);
+    return R_SUCCEEDED(rc) ? (Result)cmdbuf[1] : rc;
+}
+
+int PortStereoLink_Relaunch(const char* name) {
+    char path[128], full[136];
+    snprintf(path, sizeof(path), "/3ds/%s", name);
+    snprintf(full, sizeof(full), "sdmc:%s", path);
+    struct stat st;
+    if (stat(full, &st) != 0) return 404;
+    if (!envIsHomebrew()) return 409;
+    Handle hbldr;
+    if (R_FAILED(srvGetServiceHandle(&hbldr, "hb:ldr"))) return 409;
+    /* argv as the launcher passes it: argc, then the strings one after another. */
+    static u32 argv[64];
+    memset(argv, 0, sizeof(argv));
+    argv[0] = 1;
+    snprintf((char*)&argv[1], sizeof(argv) - sizeof(u32), "%s", full);
+    Result rc = HbldrCall(hbldr, 2, path, (u32)strlen(path) + 1, 0);
+    if (R_SUCCEEDED(rc)) rc = HbldrCall(hbldr, 3, argv, sizeof(argv), 1);
+    svcCloseHandle(hbldr);
+    return R_SUCCEEDED(rc) ? 200 : 500;
+}
+
+void PortStereoLink_Quit(void) {
+    Platform3DS_RequestQuit();
 }
