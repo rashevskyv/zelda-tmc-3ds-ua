@@ -1253,7 +1253,8 @@ static void Answer(Client* client) {
             sQuitIn = 45; /* let this answer leave first */
         }
         RespondText(client, status, status == 200 ? "ok, restarting" : status == 404 ? "no such file"
-                                    : status == 409 ? "not from the Homebrew Launcher" : "cannot");
+                                    : status == 409 ? "the Homebrew Launcher cannot take it now: restart by hand"
+                                                    : "cannot");
     } else if (post && strcmp(target, "/save") == 0) {
         const bool saved = PortStereoEdits_Save();
         RespondText(client, saved ? 200 : 400, saved ? "ok" : "cannot write");

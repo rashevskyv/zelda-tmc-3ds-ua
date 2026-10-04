@@ -3,6 +3,7 @@
  * on its own for a check or a download; the two cannot hold it at once, so
  * the link simply fails to start while an update runs and tries again. */
 #include "port_stereo_link.h"
+#include "platform_3ds.h"
 
 #include <3ds.h>
 #include <malloc.h>
@@ -70,8 +71,18 @@ int PortStereoLink_Relaunch(const char* name) {
     struct stat st;
     if (stat(full, &st) != 0) return 404;
     if (!envIsHomebrew()) return 409;
+    /* hb:ldr takes few sessions; asked the usual way, srv waits for a free
+     * one -- forever, and the console hung. Ask without waiting. */
     Handle hbldr;
-    if (R_FAILED(srvGetServiceHandle(&hbldr, "hb:ldr"))) return 409;
+    Platform3DS_Debug("[link] relaunch: asking hb:ldr\n");
+    srvSetBlockingPolicy(true);
+    const Result got = srvGetServiceHandle(&hbldr, "hb:ldr");
+    srvSetBlockingPolicy(false);
+    if (R_FAILED(got)) {
+        Platform3DS_Debug("[link] relaunch: hb:ldr busy\n");
+        return 409;
+    }
+    Platform3DS_Debug("[link] relaunch: setting target\n");
     /* argv as the launcher passes it: argc, then the path. */
     static u32 argv[64];
     memset(argv, 0, sizeof(argv));
@@ -80,6 +91,7 @@ int PortStereoLink_Relaunch(const char* name) {
     Result rc = HbldrCall(hbldr, 2, path, (u32)strlen(path) + 1, 0);
     if (R_SUCCEEDED(rc)) rc = HbldrCall(hbldr, 3, argv, sizeof(argv), 1);
     svcCloseHandle(hbldr);
+    Platform3DS_Debug(R_SUCCEEDED(rc) ? "[link] relaunch: target set\n" : "[link] relaunch: hb:ldr refused\n");
     return R_SUCCEEDED(rc) ? 200 : 500;
 }
 
