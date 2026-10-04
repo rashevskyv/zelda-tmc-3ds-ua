@@ -85,6 +85,7 @@ enum {
     DRAIN_FRAMES = 30,
     MAX_REQUEST = 2 * 1024 * 1024,
     UPLOAD_PER_TICK = 64 * 1024,
+    UPLOAD_STALL_FRAMES = 60 * 8,
     SEND_PER_TICK = 96 * 1024,
     CLIENT_TIMEOUT_FRAMES = 60 * 60,
     RECV_CHUNK = 32 * 1024,
@@ -122,6 +123,9 @@ static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
+/* The build just written, shown for a while on the bottom screen. */
+static char sUploadedName[64];
+static unsigned sUploadedUntil;
 
 /* Test mode, only while the link is on: every item and skill, hearts kept
  * full, optionally through walls; the save as it was is kept aside and comes
@@ -1000,6 +1004,11 @@ static void UploadFinish(Client* client) {
     remove(client->uploadPath);
     const bool renamed = rename(temp, client->uploadPath) == 0;
     LinkLog("[link] wrote %s: %s", client->uploadPath, renamed ? "ok" : "rename failed");
+    if (renamed) {
+        const char* name = strrchr(client->uploadPath, '/');
+        snprintf(sUploadedName, sizeof(sUploadedName), "%s", name ? name + 1 : client->uploadPath);
+        sUploadedUntil = sFrame + 60 * 8;
+    }
     RespondText(client, renamed ? 200 : 400, renamed ? "ok" : "cannot rename");
 }
 
@@ -1242,7 +1251,9 @@ static void Answer(Client* client) {
             sscanf(at + 5, "%63[A-Za-z0-9._-]", name);
         }
         const size_t n = strlen(name);
-        const int status = n > 5 && strcmp(name + n - 5, ".3dsx") == 0 ? PortStereoLink_Relaunch(name) : 400;
+        /* Relaunching through the Homebrew Launcher's loader hung the
+         * console more than once: the user restarts by hand. */
+        const int status = n > 5 && strcmp(name + n - 5, ".3dsx") == 0 ? 409 : 400;
         LinkLog("[link] relaunch %s: %d", name, status);
         if (status == 200) {
             PortStereoEdits_Save();
@@ -1300,6 +1311,7 @@ static void ServeClient(Client* client) {
             if (n > 0) {
                 UploadWrite(client, chunk, (size_t)n);
                 budget -= (size_t)n < budget ? (size_t)n : budget;
+                client->age = 0; /* only data keeps an upload alive */
                 continue;
             }
             if (n == 0) {
@@ -1308,7 +1320,13 @@ static void ServeClient(Client* client) {
             }
             break;
         }
-        client->age = 0; /* a slow upload is not a dead client */
+        if (client->age > UPLOAD_STALL_FRAMES) {
+            /* The sender went quiet: drop it and let the game go on. */
+            LinkLog("[link] upload of %s stalled at %u bytes, dropped", client->uploadPath,
+                    (unsigned)client->uploadDone);
+            CloseClient(client);
+            return;
+        }
         if (client->uploadLeft == 0) {
             UploadFinish(client);
         } else {
@@ -1553,6 +1571,19 @@ void PortStereoLink_Tick(void) {
         }
         ServeClient(client);
     }
+}
+
+bool PortStereoLink_UploadInfo(unsigned* received, unsigned* total, const char** doneName) {
+    *doneName = (int)(sUploadedUntil - sFrame) > 0 ? sUploadedName : NULL;
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        const Client* c = &sClients[i];
+        if (c->socket >= 0 && c->upload != NULL) {
+            *received = (unsigned)c->uploadDone;
+            *total = (unsigned)(c->uploadDone + c->uploadLeft);
+            return true;
+        }
+    }
+    return false;
 }
 
 int PortStereoLink_UploadProgress(void) {

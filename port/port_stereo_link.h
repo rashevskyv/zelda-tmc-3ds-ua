@@ -60,6 +60,9 @@ void PortStereoLink_SetEnabled(bool enabled);
 /* While a build is coming in: the game holds still and the bottom screen
  * shows how far it is (0..1000 per mille), or -1 when nothing comes. */
 int PortStereoLink_UploadProgress(void);
+/* The build coming in (bytes so far and in all), and the name of one just
+ * written while its note is up; any thread. */
+bool PortStereoLink_UploadInfo(unsigned* received, unsigned* total, const char** doneName);
 
 /* Close the sockets and the network: on leaving the game. */
 void PortStereoLink_Shutdown(void);

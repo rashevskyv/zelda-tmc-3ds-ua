@@ -234,7 +234,11 @@ int Port_SecondScreen_3DS_NeedsPeriodicRefresh(const SecondScreenSnapshot* snap,
                                                int32_t height) {
     if (!snap || snap->introCinema) return 0;
     if (PortStereoEditor_IsOpen()) return 1;
-    if (PortStereoLink_UploadProgress() >= 0) return 1;
+    {
+        unsigned received, total;
+        const char* done;
+        if (PortStereoLink_UploadInfo(&received, &total, &done) || done != NULL) return 1;
+    }
     if (PortStereoLink_Enabled()) {
         int linkTab, linkPage;
         UI_LOCK();

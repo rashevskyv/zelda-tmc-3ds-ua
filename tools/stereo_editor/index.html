@@ -107,7 +107,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
   <button id="openBtn" title="Відкрити stereo_edits.txt (замінює поточні правки)">Відкрити…</button>
   <button id="mergeBtn" title="Об'єднати з файлом іншої людини">Об'єднати…</button>
   <span class="sep"></span>
-  <button id="buildBtn" title="Залити нову збірку (.3dsx) на консоль і перезапустити гру з неї (лише з Homebrew Launcher)">Оновити гру…</button>
+  <button id="buildBtn" title="Залити нову збірку (.3dsx) на консоль (гра на паузі з прогресом); потім перезапустіть гру з Homebrew Launcher">Оновити гру…</button>
   <input id="buildInput" type="file" accept=".3dsx" hidden>
   <button id="vrBtn" title="Перегляд у шоломі (WebXR, напр. Quest 3): справжні кадри обох очей консолі, кожне своєму оку" hidden>VR</button>
   <button id="helpBtn" title="Довідка (F1)">?</button>
@@ -1683,9 +1683,8 @@ function uploadBuild(file) {
   xhr.upload.onprogress = e => { if (e.lengthComputable) $("pending").textContent = `заливаю ${name}: ${Math.round(e.loaded * 100 / e.total)}%`; };
   xhr.onload = async () => {
     if (xhr.status !== 200) { toast("Не залилось: " + xhr.responseText); return; }
-    $("pending").textContent = `${name} на консолі; перезапускаю…`;
-    try { await api(`/relaunch?name=${encodeURIComponent(name)}`, { method: "POST", body: "" }); toast("Гра перезапускається з " + name + ". Увімкніть Редактор ПК знову й підключіться."); S.connected = false; setChip("перезапуск…", "warn"); }
-    catch (e) { toast("Залито, але перезапустити не вдалося (" + e.message.replace(/^\d+ /, "") + ") — запустіть " + name + " вручну"); }
+    $("pending").textContent = `${name} на консолі`;
+    toast(`Передачу закінчено: ${name}. Перезапустіть гру з Homebrew Launcher.`, 8000);
   };
   xhr.onerror = () => toast("Обрив під час заливання");
   xhr.send(file);

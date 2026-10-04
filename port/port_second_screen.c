@@ -3007,18 +3007,35 @@ void Port_SecondScreen_PaintInto(uint32_t* pixels, int width, int height, int st
     UI_LOCK();
     sMapCameraMoving = 0;
     UI_UNLOCK();
-    if (PortStereoLink_UploadProgress() >= 0) {
-        /* A new build coming in from the PC editor; the game is paused. */
-        const int permille = PortStereoLink_UploadProgress();
+    unsigned upReceived = 0, upTotal = 0;
+    const char* upDone = NULL;
+    const bool uploading = PortStereoLink_UploadInfo(&upReceived, &upTotal, &upDone);
+    if (uploading || upDone != NULL) {
+        /* A new build from the PC editor: the game is paused while it comes. */
         char line[96];
         Port_SecondScreenTheme_DrawBackdrop(s.px, s.w, s.h, s.stride, 0, 0, s.w, s.h, 2);
-        UpdateBodyText(&s, "Нова збірка з ПК", 20, 70, SS_TEXT_RED, true);
-        UpdateBodyText(&s, "гра на паузі, зачекайте", 20, 90, SS_TEXT_INK, true);
-        FillRoundRect(&s, 20, 120, (float)s.w - 20, 140, 6, 0xff505050u);
-        FillRoundRect(&s, 22, 122, 22 + ((float)s.w - 44) * (float)permille / 1000.0f, 138, 5, 0xffe0b040u);
-        /* "%" is a kana in the game's font. */
-        snprintf(line, sizeof(line), "%d зі 100", permille / 10);
-        UpdateBodyText(&s, line, s.w / 2 - 28, 146, SS_TEXT_INK, true);
+        if (uploading) {
+            const float part = upTotal ? (float)upReceived / (float)upTotal : 0.0f;
+            UpdateBodyText(&s, "Нова збірка з ПК", 20, 60, SS_TEXT_RED, true);
+            UpdateBodyText(&s, "гра на паузі, зачекайте", 20, 80, SS_TEXT_INK, true);
+            FillRoundRect(&s, 20, 110, (float)s.w - 20, 130, 6, 0xff505050u);
+            FillRoundRect(&s, 22, 112, 22 + ((float)s.w - 44) * part, 128, 5, 0xffe0b040u);
+            /* MB as tenths ("%" is a kana in the game's font). */
+            snprintf(line, sizeof(line), "%u,%u з %u,%u МБ", upReceived / 1048576u, (upReceived % 1048576u) * 10u / 1048576u,
+                     upTotal / 1048576u, (upTotal % 1048576u) * 10u / 1048576u);
+            UpdateBodyText(&s, line, 20, 138, SS_TEXT_INK, true);
+            /* A spinner: eight dots, one lit, turning with the frames. */
+            const int lit = (int)(tick / 4u) & 7;
+            for (int i = 0; i < 8; ++i) {
+                static const int dx[8] = { 0, 7, 10, 7, 0, -7, -10, -7 }, dy[8] = { -10, -7, 0, 7, 10, 7, 0, -7 };
+                const float cx = (float)s.w - 40 + (float)dx[i], cy = 150 + (float)dy[i];
+                FillRoundRect(&s, cx - 2, cy - 2, cx + 2, cy + 2, 2, i == lit ? 0xff2040e0u : 0xffa0a0a0u);
+            }
+        } else {
+            UpdateBodyText(&s, "Нову збірку записано:", 20, 70, SS_TEXT_RED, true);
+            UpdateBodyText(&s, upDone, 20, 90, SS_TEXT_INK, true);
+            UpdateBodyText(&s, "Перезапустіть гру з Homebrew Launcher", 20, 120, SS_TEXT_INK, true);
+        }
         UI_LOCK();
         sTapTargetCount = 0;
         sUi.lastTick = tick;
