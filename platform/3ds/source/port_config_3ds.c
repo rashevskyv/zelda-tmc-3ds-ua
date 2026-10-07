@@ -127,7 +127,10 @@ static bool sFrameLog = false;
 static unsigned sDebugWarp[5];
 static bool sDebugWarpSet;
 static int sDebugStereoEditor;
-static bool sStereoLink;
+/* On by default while the stereo work goes on (the user asked, 2026-10-07):
+ * the PC editor finds the console without a trip to the developer page;
+ * stereo_link=0 in the ini turns it off. */
+static bool sStereoLink = true;
 /* Compact Old 3DS upload surfaces (272x160 top, 320x240 bottom RGBA8 instead of
  * 512x256). Cuts the bottom clean-and-transfer from 491520 to 307200 bytes, and
  * that transfer is synchronous, so it shortens a recurring main-thread block on

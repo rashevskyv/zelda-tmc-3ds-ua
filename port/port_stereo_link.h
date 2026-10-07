@@ -35,6 +35,10 @@
  *                                    press console buttons (menus, the title)
  *   POST /screen?bg=N|tile=T&depth=D a menu screen's background, or its sprites
  *                                    of object tile T, at depth D (none: own)
+ *   POST /quit                       leave for the Homebrew Launcher
+ *   POST /launcher                   body: a new sdmc:/boot.3dsx (the first old
+ *                                    one is kept as boot.3dsx.orig);
+ *                                    ?restore=1 puts boot.3dsx.orig back
  *   POST /save                       write stereo_edits.txt
  *   POST /file?name=x.3dsx[&quit=0]  a new build into sdmc:/3ds/ (3DSX only); the
  *                                    game then quits to the Homebrew Launcher

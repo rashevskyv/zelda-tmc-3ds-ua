@@ -112,6 +112,8 @@ typedef struct {
     char uploadPath[96];
     /* POST /file?...&quit=0 leaves the game running once the build is in. */
     bool uploadKeep;
+    /* POST /launcher: the body is a new Homebrew Launcher (sdmc:/boot.3dsx). */
+    bool uploadLauncher;
     /* Frames since the answer went out: the console's sockets drop what is
      * still unsent when closed at once, so the client closes first. */
     unsigned draining;
@@ -1146,7 +1148,31 @@ static void RespondText(Client* client, int status, const char* text);
 
 /* Starts writing the body of POST /file?name=x.3dsx to sdmc:/3ds/x.3dsx.part;
  * false (answered) when the name is not a plain .3dsx. */
-static bool UploadStart(Client* client, const char* query, size_t contentLength) {
+#define LAUNCHER_PATH "sdmc:/boot.3dsx"
+#define LAUNCHER_BACKUP "sdmc:/boot.3dsx.orig"
+
+static bool UploadStart(Client* client, const char* query, size_t contentLength, bool launcher) {
+    if (launcher) {
+        /* A Homebrew Launcher is far smaller than the game, far larger than
+         * nothing. */
+        if (contentLength < 64 * 1024 || contentLength > 4 * 1024 * 1024) {
+            RespondText(client, 400, "that is no Homebrew Launcher");
+            return false;
+        }
+        snprintf(client->uploadPath, sizeof(client->uploadPath), "%s", LAUNCHER_PATH);
+        client->uploadKeep = true;
+        client->uploadLauncher = true;
+        client->upload = fopen(LAUNCHER_PATH ".part", "wb");
+        if (client->upload == NULL) {
+            RespondText(client, 400, "cannot write");
+            return false;
+        }
+        client->uploadLeft = contentLength;
+        client->uploadDone = 0;
+        client->uploadFailed = false;
+        LinkLog("[link] receiving a launcher, %u bytes", (unsigned)contentLength);
+        return true;
+    }
     char name[64] = { 0 };
     const char* at = query ? strstr(query, "name=") : NULL;
     if (at != NULL) {
@@ -1198,8 +1224,33 @@ static void UploadFinish(Client* client) {
         RespondText(client, 400, "cannot write, or not a 3DSX");
         return;
     }
+    if (client->uploadLauncher) {
+        /* The launcher the console came with is kept once, never replaced:
+         * POST /launcher?restore=1 puts it back. */
+        FILE* backup = fopen(LAUNCHER_BACKUP, "rb");
+        if (backup != NULL) {
+            fclose(backup);
+        } else {
+            FILE* current = fopen(LAUNCHER_PATH, "rb");
+            if (current != NULL) {
+                fclose(current);
+                if (rename(LAUNCHER_PATH, LAUNCHER_BACKUP) != 0) {
+                    remove(temp);
+                    LinkLog("[link] launcher: could not keep the old one, nothing changed");
+                    RespondText(client, 500, "could not keep the old launcher; nothing changed");
+                    return;
+                }
+                LinkLog("[link] launcher: old one kept as " LAUNCHER_BACKUP);
+            }
+        }
+    }
     remove(client->uploadPath);
     const bool renamed = rename(temp, client->uploadPath) == 0;
+    if (client->uploadLauncher) {
+        LinkLog("[link] launcher replaced: %s", renamed ? "ok" : "rename failed");
+        RespondText(client, renamed ? 200 : 500, renamed ? "ok, launcher replaced" : "cannot rename");
+        return;
+    }
     LinkLog("[link] wrote %s: %s", client->uploadPath, renamed ? "ok" : "rename failed");
     if (renamed) {
         const char* name = strrchr(client->uploadPath, '/');
@@ -1460,6 +1511,23 @@ static void Answer(Client* client) {
         sInjectKeys = keys;
         sInjectTotal = sInjectFrames = keys ? (unsigned)(frames < 1 ? 1 : frames > 240 ? 240 : frames) : 0;
         RespondText(client, keys ? 200 : 400, keys ? "ok" : "no such button");
+    } else if (post && strcmp(target, "/launcher") == 0) {
+        /* restore=1: the launcher the console came with, back again. */
+        FILE* backup = fopen(LAUNCHER_BACKUP, "rb");
+        if (backup == NULL) {
+            RespondText(client, 404, "no " LAUNCHER_BACKUP);
+        } else {
+            fclose(backup);
+            remove(LAUNCHER_PATH);
+            const bool ok = rename(LAUNCHER_BACKUP, LAUNCHER_PATH) == 0;
+            LinkLog("[link] launcher restored: %s", ok ? "ok" : "failed");
+            RespondText(client, ok ? 200 : 500, ok ? "ok, the old launcher is back" : "cannot rename");
+        }
+    } else if (post && strcmp(target, "/quit") == 0) {
+        /* Back to the Homebrew Launcher, whose netloader (3dslink) can then
+         * take and start the next build. */
+        sQuitIn = 30;
+        RespondText(client, 200, "ok, quitting");
     } else if (post && strcmp(target, "/highlight") == 0) {
         /* The PC editor's "show the selection": the frame on the top screen
          * goes, the selection stays. */
@@ -1624,7 +1692,9 @@ static void ServeClient(Client* client) {
                 client->request[client->requestLength] = '\0';
                 /* POST /file: once the headers are in, the body goes to the card. */
                 const char* end = strstr(client->request, "\r\n\r\n");
-                if (end != NULL && strncmp(client->request, "POST /file", 10) == 0) {
+                const bool launcher = end != NULL && strncmp(client->request, "POST /launcher", 14) == 0 &&
+                                      strstr(client->request, "restore=1") == NULL;
+                if (end != NULL && (strncmp(client->request, "POST /file", 10) == 0 || launcher)) {
                     char target[256] = { 0 };
                     sscanf(client->request, "%*7s %255s", target);
                     char* query = strchr(target, '?');
@@ -1637,7 +1707,7 @@ static void ServeClient(Client* client) {
                         line = line ? line + 1 : NULL;
                     }
                     const size_t head = (size_t)(end + 4 - client->request);
-                    if (UploadStart(client, query ? query + 1 : NULL, contentLength)) {
+                    if (UploadStart(client, query ? query + 1 : NULL, contentLength, launcher)) {
                         UploadWrite(client, client->request + head, client->requestLength - head);
                         free(client->request);
                         client->request = NULL;
