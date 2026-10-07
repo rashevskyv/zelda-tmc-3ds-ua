@@ -154,6 +154,7 @@ extern void Port_DebugAction_GiveAllItems(void);
 extern void Port_DebugAction_SetNoclip(int on);
 extern int Port_DebugQuery_Noclip(void);
 extern void Port_DebugAction_SetAutoNoclip(int on);
+extern int Port_Debug_NoclipEnabled(void);
 extern void UpdatePlayerSkills(void);
 extern void LoadItemGfx(void);
 extern void EraseHearts(void);
@@ -849,7 +850,7 @@ static void AnswerStatus(Client* client) {
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
          "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u,\"editorCells\":%s,"
-         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d}",
+         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -862,7 +863,8 @@ static void AnswerStatus(Client* client) {
          gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
          HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree(), cellsInfo,
          PortStereoEditor_SelectedCount(), SpriteRevision(false), SpriteRevision(true), MapRevision(),
-         Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight());
+         Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight(),
+         Port_Debug_NoclipEnabled() ? "false" : "true");
     RespondBuffer(client, "application/json", &b);
 }
 

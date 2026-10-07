@@ -2930,6 +2930,17 @@ void sub_0807A5B8(u32 direction) {
     u32 uVar3;
     const u8* pbVar4;
 
+#ifdef PC_PORT
+    /* This pushes Link back out of a wall his edges reached; walking
+     * through walls (debug toggle, or a stereo editor open) skips it. */
+    {
+        extern int Port_Debug_NoclipEnabled(void);
+        if (Port_Debug_NoclipEnabled()) {
+            return;
+        }
+    }
+#endif
+
     if ((((gPlayerState.jump_status & 0x80) == 0) && ((gPlayerState.flags & PL_HIDDEN) == 0)) &&
         (gPlayerState.swim_state == 0)) {
         if ((gPlayerState.flags & PL_MINISH) != 0) {

@@ -29,7 +29,7 @@ header .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; 
 .chip.ok { color: var(--ok); border-color: #2e5a32; }
 .chip.bad { color: var(--bad); border-color: #5a2e2e; }
 .chip.warn { color: var(--warn); border-color: #5a4a2e; }
-main { display: grid; grid-template-columns: 250px 1fr 300px; min-height: 0; }
+main { display: grid; grid-template-columns: 250px 1fr auto; min-height: 0; }
 aside { background: var(--panel); min-height: 0; overflow: auto; }
 aside.left { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
 aside.right { border-left: 1px solid var(--line); }
@@ -69,7 +69,7 @@ footer b { color: var(--text); font-weight: 500; }
 .listItem:hover { background: var(--panel2); }
 .listItem.sel { background: #1b3a4b; }
 .listItem .v { color: var(--accent2); min-width: 26px; text-align: right; }
-#depthList { max-height: 320px; overflow: auto; margin-top: 6px; }
+#depthList { max-height: 60vh; overflow: auto; margin-top: 6px; }
 .depthItem { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 5px; }
 .depthItem:hover { background: var(--panel2); }
 .depthItem.off .name, .depthItem.off .sw { opacity: .4; }
@@ -98,6 +98,24 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
 #ctxMenu div:hover { background: var(--panel2); }
 #ctxMenu div.sep { height: 1px; padding: 0; margin: 4px 0; background: var(--line); cursor: default; }
 #ctxMenu div .k { float: right; color: var(--dim); margin-left: 16px; }
+#dock { display: flex; min-height: 0; }
+.dockCol { position: relative; width: 300px; min-width: 200px; background: var(--panel); border-left: 1px solid var(--line); overflow: auto; min-height: 0; }
+.dockCol.dropTarget { outline: 2px dashed var(--accent); outline-offset: -3px; }
+.dockCol .resizer { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; cursor: col-resize; z-index: 2; }
+.dockCol .resizer:hover { background: var(--accent); opacity: .5; }
+.dockCol .filler { min-height: 60px; }
+.section h3 { cursor: grab; user-select: none; display: flex; justify-content: space-between; }
+.section h3::after { content: "▾"; color: var(--dim); }
+.section.collapsed h3::after { content: "▸"; }
+.section.collapsed > :not(h3) { display: none !important; }
+.section.dragging { opacity: .4; }
+.popover { position: absolute; right: 10px; top: 46px; z-index: 15; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; flex-direction: column; gap: 4px; min-width: 240px; }
+.popover.open { display: flex; }
+.depthItem.sel { background: #1b3a4b; }
+.depthItem .lock { cursor: pointer; width: 18px; text-align: center; user-select: none; opacity: .35; }
+.depthItem .lock.on { opacity: 1; }
+.depthItem .sw { cursor: pointer; }
+#depthList { user-select: none; outline: none; }
 #toast { position: fixed; right: 16px; bottom: 40px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
 #toast div { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
 </style>
@@ -122,6 +140,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
   <button id="buildBtn" title="Залити нову збірку (.3dsx) на консоль (гра на паузі з прогресом); потім перезапустіть гру з Homebrew Launcher">Оновити гру…</button>
   <input id="buildInput" type="file" accept=".3dsx" hidden>
   <button id="vrBtn" title="Перегляд у шоломі (WebXR, напр. Quest 3): справжні кадри обох очей консолі, кожне своєму оку" hidden>VR</button>
+  <label class="row" title="Скільки стовпчиків панелей праворуч. Панелі перетягуються за заголовок, ширина стовпчика — за лівий край, клік по заголовку згортає">Стовпчики <select id="dockCols"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
   <button id="helpBtn" title="Довідка (F1)">?</button>
   <input id="fileInput" type="file" accept=".txt" hidden>
 </header>
@@ -136,7 +155,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <div id="hud"></div>
     <div id="viewBar" style="position:absolute;right:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 300px)">
       <button class="toggle" data-check="showGrid" title="Сітка клітинок 8×8 і плиток 16×16 (G)">▦ Сітка</button>
-      <button class="toggle" data-check="showHeat" title="Кольори висот (C): земля прозора, нижче — синє, вище — зелене → жовте → червоне → фіолетове">■ Кольори</button>
+      <button id="heatBtn" class="toggle" title="Висоти поверх картинки: кольори чи цифри, для яких шарів (C — увімкнути/вимкнути)">■ Висоти ▾</button>
       <button class="toggle" data-check="showSprites" title="Спрайти гри: меблі, рами дверей…">☻ Спрайти</button>
       <button class="toggle" data-check="showBottom" title="Нижній шар мапи (BG нижній): земля, підлога">▁ Нижній</button>
       <button class="toggle" data-check="showTop" title="Верхній шар мапи: крони, дахи, верх стін">▔ Верхній</button>
@@ -146,6 +165,18 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <button id="crawlAreaBtn" title="Лінк по черзі відвідає кожну кімнату цієї області, а редактор збереже їх — тоді мапа області буде повна, і з кімнатами можна працювати без консолі">Обійти область</button>
       <button id="crawlAllBtn" title="Те саме для всіх ~600 кімнат гри (кілька десятків хвилин; натисніть ще раз, щоб зупинити)">Обійти всю гру</button>
     </div>
+    <div id="heatMenu" class="popover">
+      <label><input type="checkbox" id="heatOnMenu"> показувати висоти</label>
+      <div class="muted small">Як</div>
+      <label><input type="radio" name="heatMode" value="colour" checked> кольорами</label>
+      <label><input type="radio" name="heatMode" value="number"> цифрами</label>
+      <label><input type="radio" name="heatMode" value="both"> кольорами й цифрами</label>
+      <div class="muted small">Для чого</div>
+      <label><input type="checkbox" id="heatBottom" checked> нижній шар мапи</label>
+      <label><input type="checkbox" id="heatTop" checked> верхній шар мапи</label>
+      <label><input type="checkbox" id="heatSprites" checked> спрайти (рамки й поправки)</label>
+      <label title="Наприклад, «Лише спрайти» ховає й кольори шарів мапи, і виділення клітинок"><input type="checkbox" id="heatFollow" checked> лише для видимого</label>
+    </div>
     <div id="legendBar" class="row legend" style="position:absolute;left:10px;bottom:6px;background:rgba(22,24,29,.85);padding:3px 8px;border-radius:6px"></div>
     <div id="live"><div class="row small"><b>Кадр консолі</b>
       <select id="liveMode" class="liveOpt"><option value="side">поруч (ліве | праве)</option><option value="cross">перехресно (праве | ліве)</option><option value="ana">анагліф</option><option value="left">лише ліве</option></select>
@@ -154,7 +185,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <span class="winBtns"><button id="liveMin" title="Згорнути / розгорнути">–</button><button id="liveClose" title="Закрити (V)">×</button></span></div><canvas id="liveCanvas" width="484" height="160"></canvas></div>
   </section>
   <aside class="right">
-    <div class="section">
+    <div class="section" data-panel="tool">
       <h3>Інструмент</h3>
       <div class="grid3 tools">
         <button data-tool="rect" title="Прямокутник (R)">▭<small>R</small></button>
@@ -170,7 +201,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <div class="row" id="brushRow">Пензель <select id="brushSize"><option value="1">1×1</option><option value="2">2×2</option><option value="3">3×3</option><option value="4">4×4</option></select>
         <label title="Паличка порівнює плитки, а не висоти"><input type="checkbox" id="wandTile"> паличка за плиткою</label></div>
     </div>
-    <div class="section">
+    <div class="section" data-panel="editLayer">
       <h3>Шар</h3>
       <div class="grid3">
         <button data-layer="3" title="Обидва шари мапи (1)">обидва</button>
@@ -178,13 +209,27 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <button data-layer="2" title="Верхній шар: крони, дахи, верх стін (3)">верхній</button>
       </div>
     </div>
-    <div class="section">
+    <div class="section" data-panel="layers">
       <h3>Шари 3D</h3>
-      <div class="small muted">Кожна глибина, на якій стоять клітинки мапи, — окремий шар, від найближчого до найдальшого. Око — показати чи сховати (Alt+клік — лише цей). Клік по назві — виділити клітинки шару (Shift — додати).</div>
-      <div class="row"><button id="depthAll" title="Показати всі шари">показати всі</button></div>
-      <div id="depthList"></div>
+      <div class="small muted">Кожна глибина, на якій стоять клітинки мапи, — окремий шар. Клік — вибрати шар (Ctrl — ще один, Shift — проміжок). 👁 — показати/сховати (для всіх вибраних; Alt — лише цей), 🔒 — заблокувати (його клітинки не виділяються), квадратик — свій колір. Подвійний клік — виділити клітинки шару (Shift — додати).</div>
+      <div class="row">
+        <label>Порядок <select id="depthSort"><option value="depth">за глибиною</option><option value="height">за висотою</option><option value="count">за кількістю клітинок</option><option value="layer">за шаром мапи</option></select></label>
+      </div>
+      <div id="depthList" tabindex="0"></div>
+      <div class="row">
+        <button id="depthShowSel" title="Показати вибрані шари">👁 вибрані</button>
+        <button id="depthHideSel" title="Сховати вибрані шари">◌ вибрані</button>
+        <button id="depthSolo" title="Показати лише вибрані шари">лише вибрані</button>
+        <button id="depthAll" title="Показати всі шари">усі</button>
+      </div>
+      <div class="row">
+        <button id="depthLock" title="Заблокувати / розблокувати вибрані шари">🔒 вибрані</button>
+        <button id="depthSelect" title="Виділити клітинки вибраних шарів (Shift — додати до виділення)">виділити клітинки</button>
+        <button id="depthColourReset" title="Повернути вибраним шарам звичайні кольори">звичайні кольори</button>
+      </div>
+      <input type="color" id="depthColour" hidden>
     </div>
-    <div class="section">
+    <div class="section" data-panel="height">
       <h3>Висота виділеного</h3>
       <div id="selInfo" class="small muted">нічого не виділено</div>
       <div class="row">
@@ -199,7 +244,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <button id="clearSelBtn" title="Зняти виділення (Esc)">Зняти</button>
       </div>
     </div>
-    <div class="section">
+    <div class="section" data-panel="rules">
       <h3>Правила плиток</h3>
       <div class="small muted">Правило діє на кожну таку саму плитку в усіх кімнатах гри (за її графікою). Кімнатні правки накладаються поверх.</div>
       <div class="row">
@@ -209,25 +254,25 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       </div>
       <div id="ruleList"></div>
     </div>
-    <div class="section">
+    <div class="section" data-panel="entities">
       <h3>Спрайти кімнати</h3>
       <div class="row small"><label><input type="checkbox" id="entAll"> зміни для всіх таких</label></div>
       <div class="row"><button id="entDown" title="Далі від глядача">далі</button><button id="entUp" title="Ближче до глядача">ближче</button><button id="entReset">скинути</button></div>
       <div id="entityList"></div>
     </div>
-    <div class="section" id="screenSec" style="display:none">
+    <div class="section" id="screenSec" data-panel="screen" style="display:none">
       <h3>Шари екрана</h3>
       <div class="small muted">Консоль зараз не в кімнаті, а на екрані меню (мапа, предмети…). Глибину кожного шару цього екрана можна задати тут; дивіться на «кадр консолі». Менше число — ближче до глядача, від’ємне — перед екраном.</div>
       <div id="screenKey" class="small muted"></div>
       <div id="screenLayers"></div>
     </div>
-    <div class="section">
+    <div class="section" data-panel="test">
       <h3>Тестування</h3>
       <div class="row"><label title="Усі предмети, уміння, 20 сердець, ключі; серця весь час повні. Поки увімкнено, гра НЕ записує збереження, а після вимкнення все повертається як було"><input type="checkbox" id="testMode"> тестовий режим</label>
         <label title="Лінк проходить крізь стіни (лише в тестовому режимі)"><input type="checkbox" id="noclip"> крізь стіни</label></div>
       <div class="small muted">Лише поки консоль з'єднана з редактором. Ваш сейв не змінюється.</div>
     </div>
-    <div class="section">
+    <div class="section" data-panel="view">
       <h3>Вигляд</h3>
       <div class="row">
         <label><input type="checkbox" id="showBottom" checked> нижній</label>
@@ -236,7 +281,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <label><input type="checkbox" id="showGrid" checked> сітка</label>
         <label title="Спрайти гри: меблі, рами дверей тощо — як були в кадрі консолі, коли кімнату знято"><input type="checkbox" id="showSprites" checked> спрайти гри</label>
         <label title="Рамки об'єктів кімнати для вибору й правок глибини"><input type="checkbox" id="showEntities" checked> рамки об'єктів</label>
-        <label title="Рамка виділення тут і на верхньому екрані консолі; виділення лишається, лише не заважає дивитися на глибину (S)"><input type="checkbox" id="showSel" checked> показувати виділення</label>
+        <label title="Рамка виділення на верхньому екрані консолі: зніміть, щоб вона не заважала дивитися на глибину; тут виділення видно далі (S)"><input type="checkbox" id="showSel" checked> рамка на консолі</label>
         <label><input type="checkbox" id="showAuto"> лише автоматика</label>
       </div>
       <div class="row">
@@ -597,7 +642,7 @@ const S = {
    * layer pictures with them cut out, which cells of a map layer draw at all,
    * and Link drawn live. */
   live: null, liveRev: -1, liveAt: 0, liveBusy: false, mapRev: undefined, mapReloadAt: 0,
-  hidden: new Set(), masked: null, cellPixels: null, player: null, playerSig: "", playerRev: -1, playerMovedAt: 0, playerBusy: false,
+  hidden: new Set(), locked: new Set(), layerColours: {}, layerSel: new Set(), layerAnchor: undefined, depthRows: [], colourKey: null, masked: null, cellPixels: null, player: null, playerSig: "", playerRev: -1, playerMovedAt: 0, playerBusy: false,
 };
 const $ = id => document.getElementById(id);
 const view = $("view"), ctx = view.getContext("2d");
@@ -882,26 +927,92 @@ function depthLayers() {
 }
 function renderDepthLayers() {
   const box = $("depthList"); if (!box) return;
-  box.innerHTML = "";
-  const rows = depthLayers().map(e => ({ key: e.key, name: `${e.L ? "верхній" : "нижній"} · висота ${e.h > 0 ? "+" + e.h : e.h}`, info: `глибина ${e.depth} · ${e.cells.length}`, colour: heightColour(e.h), cells: e.cells }));
+  const scroll = box.scrollTop; box.innerHTML = "";
+  const layers = depthLayers();
+  const sort = $("depthSort").value;
+  if (sort === "height") layers.sort((a, b) => b.h - a.h || b.L - a.L);
+  else if (sort === "count") layers.sort((a, b) => b.cells.length - a.cells.length);
+  else if (sort === "layer") layers.sort((a, b) => b.L - a.L || a.depth - b.depth);
+  const rows = layers.map(e => ({ key: e.key, name: `${e.L ? "верхній" : "нижній"} · ${e.h > 0 ? "+" + e.h : e.h}`, info: `гл. ${e.depth} · ${e.cells.length}`, colour: layerColour(e.key, e.h), cells: e.cells }));
   rows.push({ key: "spr", name: "спрайти кімнати", info: "", colour: null });
   rows.push({ key: "link", name: "Лінк (живий)", info: S.player ? "" : "чекаю консоль", colour: null });
-  for (const row of rows) {
-    const it = document.createElement("div"); it.className = "depthItem" + (S.hidden.has(row.key) ? " off" : "");
+  S.depthRows = rows;
+  rows.forEach((row, index) => {
+    const it = document.createElement("div");
+    it.className = "depthItem" + (S.hidden.has(row.key) ? " off" : "") + (S.layerSel.has(row.key) ? " sel" : "");
     const eye = document.createElement("span"); eye.className = "eye"; eye.textContent = S.hidden.has(row.key) ? "◌" : "👁";
-    eye.title = "Показати / сховати (Alt — лише цей)";
+    eye.title = "Показати / сховати (усі вибрані, якщо цей серед них; Alt — лише цей)";
     eye.onclick = ev => {
-      if (ev.altKey) { S.hidden = new Set(rows.map(x => x.key).filter(k => k !== row.key)); }
-      else if (S.hidden.has(row.key)) S.hidden.delete(row.key); else S.hidden.add(row.key);
-      saveHidden(); S.masked = null; renderDepthLayers(); draw();
+      ev.stopPropagation();
+      const keys = S.layerSel.has(row.key) ? [...S.layerSel] : [row.key];
+      if (ev.altKey) S.hidden = new Set(rows.map(x => x.key).filter(k => k !== row.key));
+      else { const hide = !S.hidden.has(row.key); for (const k of keys) hide ? S.hidden.add(k) : S.hidden.delete(k); }
+      layersChanged();
     };
+    const lock = document.createElement("span"); lock.className = "lock" + (S.locked.has(row.key) ? " on" : ""); lock.textContent = "🔒";
+    lock.title = "Заблокувати: клітинки шару не виділяються (для всіх вибраних, якщо цей серед них)";
+    if (row.cells) lock.onclick = ev => {
+      ev.stopPropagation();
+      const keys = S.layerSel.has(row.key) ? [...S.layerSel] : [row.key], on = !S.locked.has(row.key);
+      for (const k of keys) if (k.includes(":")) on ? S.locked.add(k) : S.locked.delete(k);
+      saveLayerPrefs(); renderDepthLayers();
+    }; else lock.style.visibility = "hidden";
     const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = row.colour ? row.colour.replace(/[\d.]+\)$/, "1)") : "transparent";
+    if (row.cells) { sw.title = "Свій колір шару"; sw.onclick = ev => { ev.stopPropagation(); S.colourKey = row.key; const c = $("depthColour"); c.value = S.layerColours[row.key] || "#40c040"; c.click(); }; }
     const name = document.createElement("span"); name.className = "name"; name.textContent = row.name;
-    if (row.cells) { name.title = "Виділити клітинки цього шару (Shift — додати)"; name.onclick = ev => applySel(row.cells, ev.shiftKey ? "add" : "replace"); }
     const v = document.createElement("span"); v.className = "v"; v.textContent = row.info;
-    it.append(eye, sw, name, v); box.append(it);
-  }
+    it.onclick = ev => {
+      if (ev.shiftKey && S.layerAnchor !== undefined) {
+        const a = rows.findIndex(x => x.key === S.layerAnchor), lo = Math.min(a < 0 ? index : a, index), hi = Math.max(a < 0 ? index : a, index);
+        if (!ev.ctrlKey && !ev.metaKey) S.layerSel.clear();
+        for (let k = lo; k <= hi; ++k) S.layerSel.add(rows[k].key);
+      } else if (ev.ctrlKey || ev.metaKey) { S.layerSel.has(row.key) ? S.layerSel.delete(row.key) : S.layerSel.add(row.key); S.layerAnchor = row.key; }
+      else { S.layerSel = new Set([row.key]); S.layerAnchor = row.key; }
+      renderDepthLayers();
+    };
+    if (row.cells) it.ondblclick = ev => selectLayerCells([row.key], ev.shiftKey);
+    it.append(eye, lock, sw, name, v); box.append(it);
+  });
+  box.scrollTop = scroll;
 }
+function layersChanged() { saveHidden(); S.masked = null; renderDepthLayers(); draw(); }
+function selectLayerCells(keys, add) {
+  const cells = [];
+  for (const row of S.depthRows || []) if (keys.includes(row.key) && row.cells) cells.push(...row.cells);
+  if (!cells.length) { toast("Виберіть шари мапи (не спрайти)"); return; }
+  applySel(cells, add ? "add" : "replace", true);
+}
+/* What the heights overlay shows for a cell: the nearest map layer that the
+ * menu asks for, that is drawn there and not hidden; null for none. */
+function heatFollows() { return $("heatFollow").checked; }
+function shownHeight(i) {
+  const follow = heatFollows();
+  for (const L of [1, 0]) {
+    if (!$(L ? "heatTop" : "heatBottom").checked) continue;
+    if (follow && !$(L ? "showTop" : "showBottom").checked) continue;
+    if (!S.room.bg[L] || (S.cellPixels && !S.cellPixels[L][i])) continue;
+    if (hiddenCell(L, i)) continue;
+    const h = cellLayerHeight(L, i);
+    return { L, h, key: `${L}:${h}` };
+  }
+  return null;
+}
+function layerColour(key, h) {
+  const own = S.layerColours[key];
+  if (own) { const n = parseInt(own.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},.6)`; }
+  return heightColour(h);
+}
+/* A cell is locked when a 3D layer it belongs to, on the map layers being
+ * edited, is locked: selections leave it out. */
+function lockedCell(i) {
+  if (!S.locked.size || !S.heights) return false;
+  for (const L of [0, 1]) if ((S.layers & (1 << L)) && S.locked.has(`${L}:${cellLayerHeight(L, i)}`)) return true;
+  return false;
+}
+function saveLayerPrefs() {
+  try { localStorage.setItem("tmc-layer-prefs", JSON.stringify({ locked: [...S.locked], colours: S.layerColours, sort: $("depthSort").value })); } catch (e) {}
+}
+
 /* The map layers with the hidden 3D layers cut out. */
 function visibleLayers() {
   if (![...S.hidden].some(k => k.includes(":"))) return S.layerImg;
@@ -990,18 +1101,29 @@ function draw() {
   /* Visible cells only. */
   const vx0 = Math.max(0, Math.floor(-S.panX / S.zoom / 8)), vy0 = Math.max(0, Math.floor(-S.panY / S.zoom / 8));
   const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
+  const heatMode = document.querySelector("input[name=heatMode]:checked").value;
   if ($("showHeat").checked && !$("preview3d").checked) {
-    for (let row = vy0; row <= vy1; ++row) {
+    const colours = heatMode !== "number", numbers = heatMode !== "colour" && S.zoom * 8 >= 11;
+    if (colours) for (let row = vy0; row <= vy1; ++row) {
       let runStart = vx0, runColour = null;
       for (let col = vx0; col <= vx1 + 1; ++col) {
-        const ci = row * SIDE + col;
-        const hid = col <= vx1 && (S.layers === LAYER_BOTTOM ? hiddenCell(0, ci) : S.layers === LAYER_TOP ? hiddenCell(1, ci)
-          : hiddenCell(0, ci) && (hiddenCell(1, ci) || !(S.cellPixels && S.cellPixels[1][ci])));
-        const colour = col <= vx1 && !hid ? heightColour(cellHeight(ci)) : null;
+        const sh = col <= vx1 ? shownHeight(row * SIDE + col) : null;
+        const colour = sh ? layerColour(sh.key, sh.h) : null;
         if (colour === runColour) continue;
         if (runColour) { ctx.fillStyle = runColour; ctx.fillRect(runStart * 8, row * 8, (col - runStart) * 8, 8); }
         runStart = col; runColour = colour;
       }
+    }
+    if (numbers) {
+      ctx.font = `600 ${Math.min(6, 6.5)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.lineWidth = 1.6 / S.zoom * Math.max(1, S.zoom / 3); ctx.strokeStyle = "rgba(0,0,0,.85)";
+      for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
+        const sh = shownHeight(row * SIDE + col); if (!sh) continue;
+        const t = String(sh.h);
+        ctx.fillStyle = sh.h === 0 ? "rgba(255,255,255,.55)" : "#fff";
+        ctx.strokeText(t, col * 8 + 4, row * 8 + 4.3); ctx.fillText(t, col * 8 + 4, row * 8 + 4.3);
+      }
+      ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
     }
   }
   /* Edited cells: a white bar; tile-rule cells: a cyan frame. */
@@ -1029,13 +1151,14 @@ function draw() {
   }
   /* The console's camera. */
   if (S.camera) { ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.setLineDash([4 / S.zoom, 3 / S.zoom]); ctx.strokeRect(S.camera[0], S.camera[1], 240, 160); ctx.setLineDash([]); }
-  drawSelection(vx0, vy0, vx1, vy1);
+  /* "Only what is visible": no cells shown, no cell selection either. */
+  if (!heatFollows() || $("showBottom").checked || $("showTop").checked) drawSelection(vx0, vy0, vx1, vy1);
   if (S.drag && S.drag.preview) S.drag.preview();
-  if ($("showEntities").checked) drawEntities();
+  if ($("showEntities").checked && $("heatSprites").checked && (!heatFollows() || $("showSprites").checked)) drawEntities();
   if (S.hover && inRoom(S.hover.col, S.hover.row)) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / S.zoom; ctx.strokeRect(S.hover.col * 8, S.hover.row * 8, 8, 8); }
 }
 function drawSelection(vx0, vy0, vx1, vy1) {
-  if (!S.selCount || !$("showSel").checked) return;
+  if (!S.selCount) return;
   ctx.fillStyle = "rgba(255,230,40,.18)";
   ctx.beginPath();
   for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
@@ -1103,9 +1226,9 @@ function drawAnaglyph() {
 
 /* ===== Selection ===== */
 function setSel(i, on) { if (!!S.selection[i] === on) return; S.selection[i] = on ? 1 : 0; S.selCount += on ? 1 : -1; }
-function applySel(cells, mode) {
+function applySel(cells, mode, ignoreLocks) {
   if (mode === "replace") { S.selection.fill(0); S.selCount = 0; }
-  for (const i of cells) setSel(i, mode !== "sub");
+  for (const i of cells) if (mode === "sub" || ignoreLocks || !lockedCell(i)) setSel(i, mode !== "sub");
   S.selEntity = null; renderEntities();
   updateSelInfo(); scheduleSelectPush(); draw();
 }
@@ -1549,7 +1672,7 @@ window.addEventListener("keydown", ev => {
   else if (k === "s") toggle("showSel");
   else if (k === "o") onlySprites();
   else if (k === "m") toggleArea();
-  else if (k === "g") toggle("showGrid"); else if (k === "c") toggle("showHeat"); else if (k === "p") toggle("preview3d");
+  else if (k === "g") toggle("showGrid"); else if (k === "c") { toggle("showHeat"); syncHeatBtn(); } else if (k === "p") toggle("preview3d");
   else if (k === "f1") { ev.preventDefault(); $("helpDlg").showModal(); }
 });
 window.addEventListener("keyup", ev => { if (ev.code === "Space") S.spaceDown = false; });
@@ -1995,7 +2118,80 @@ function onlySprites() {
   syncToggles(); draw();
 }
 $("onlySprites").addEventListener("click", onlySprites);
-$("depthAll").addEventListener("click", () => { S.hidden.clear(); saveHidden(); S.masked = null; renderDepthLayers(); draw(); });
+$("depthAll").addEventListener("click", () => { S.hidden.clear(); layersChanged(); });
+$("depthShowSel").addEventListener("click", () => { for (const k of S.layerSel) S.hidden.delete(k); layersChanged(); });
+$("depthHideSel").addEventListener("click", () => { for (const k of S.layerSel) S.hidden.add(k); layersChanged(); });
+$("depthSolo").addEventListener("click", () => { if (!S.layerSel.size) return toast("Виберіть шари у списку"); S.hidden = new Set(S.depthRows.map(x => x.key).filter(k => !S.layerSel.has(k))); layersChanged(); });
+$("depthLock").addEventListener("click", ev => { const keys = [...S.layerSel].filter(k => k.includes(":")); if (!keys.length) return toast("Виберіть шари мапи у списку"); const on = !keys.every(k => S.locked.has(k)); for (const k of keys) on ? S.locked.add(k) : S.locked.delete(k); saveLayerPrefs(); renderDepthLayers(); });
+$("depthSelect").addEventListener("click", ev => selectLayerCells([...S.layerSel], ev.shiftKey));
+$("depthColourReset").addEventListener("click", () => { for (const k of S.layerSel) delete S.layerColours[k]; saveLayerPrefs(); renderDepthLayers(); draw(); });
+$("depthColour").addEventListener("input", () => { if (!S.colourKey) return; const keys = S.layerSel.has(S.colourKey) ? [...S.layerSel] : [S.colourKey]; for (const k of keys) if (k.includes(":")) S.layerColours[k] = $("depthColour").value; saveLayerPrefs(); renderDepthLayers(); draw(); });
+$("depthSort").addEventListener("change", () => { saveLayerPrefs(); renderDepthLayers(); });
+/* The heights menu. */
+function saveHeat() { try { localStorage.setItem("tmc-heat", JSON.stringify({ heatBottom: $("heatBottom").checked, heatTop: $("heatTop").checked, heatSprites: $("heatSprites").checked, heatFollow: $("heatFollow").checked, mode: document.querySelector("input[name=heatMode]:checked").value })); } catch (e) {} }
+function syncHeatBtn() { $("heatBtn").classList.toggle("on", $("showHeat").checked); $("heatOnMenu").checked = $("showHeat").checked; }
+$("heatBtn").addEventListener("click", ev => { ev.stopPropagation(); $("heatMenu").classList.toggle("open"); syncHeatBtn(); });
+$("heatOnMenu").addEventListener("change", () => { $("showHeat").checked = $("heatOnMenu").checked; syncHeatBtn(); draw(); });
+for (const el of document.querySelectorAll("#heatMenu input")) if (el.id !== "heatOnMenu") el.addEventListener("change", () => { saveHeat(); draw(); });
+$("heatMenu").addEventListener("click", ev => ev.stopPropagation());
+document.addEventListener("click", () => $("heatMenu").classList.remove("open"));
+$("showHeat").addEventListener("change", syncHeatBtn);
+$("showBottom").addEventListener("change", () => renderDepthLayers());
+$("showTop").addEventListener("change", () => renderDepthLayers());
+
+/* ===== Panels: columns on the right, dragged by their titles ===== */
+function setupDock() {
+  const aside = document.querySelector("aside.right"); if (!aside) return;
+  const panels = [...aside.querySelectorAll(".section[data-panel]")];
+  S.panels = new Map(panels.map(p => [p.dataset.panel, p]));
+  const dock = document.createElement("div"); dock.id = "dock"; aside.replaceWith(dock);
+  let layout = null; try { layout = JSON.parse(localStorage.getItem("tmc-dock") || "null"); } catch (e) {}
+  const defaults = { cols: 2, widths: [300, 300, 300, 300], collapsed: [],
+    place: { tool: 0, editLayer: 0, height: 0, rules: 0, entities: 0, screen: 0, test: 0, layers: 1, view: 1 }, order: panels.map(p => p.dataset.panel) };
+  S.dock = Object.assign(defaults, layout || {});
+  for (const id of S.panels.keys()) { if (!S.dock.order.includes(id)) S.dock.order.push(id); if (!(id in S.dock.place)) S.dock.place[id] = 0; }
+  $("dockCols").value = S.dock.cols;
+  for (const p of panels) {
+    const h = p.querySelector("h3"); h.draggable = true;
+    if (S.dock.collapsed.includes(p.dataset.panel)) p.classList.add("collapsed");
+    h.addEventListener("click", () => { p.classList.toggle("collapsed"); S.dock.collapsed = [...S.panels.values()].filter(x => x.classList.contains("collapsed")).map(x => x.dataset.panel); saveDock(); });
+    h.addEventListener("dragstart", ev => { ev.dataTransfer.setData("text/plain", p.dataset.panel); ev.dataTransfer.effectAllowed = "move"; p.classList.add("dragging"); });
+    h.addEventListener("dragend", () => { p.classList.remove("dragging"); for (const c of document.querySelectorAll(".dockCol")) c.classList.remove("dropTarget"); });
+  }
+  buildDock();
+  $("dockCols").addEventListener("change", () => { S.dock.cols = +$("dockCols").value; buildDock(); saveDock(); });
+}
+function saveDock() { try { localStorage.setItem("tmc-dock", JSON.stringify(S.dock)); } catch (e) {} }
+function buildDock() {
+  const dock = $("dock"), n = S.dock.cols; dock.innerHTML = "";
+  const cols = [];
+  for (let c = 0; c < n; ++c) {
+    const col = document.createElement("div"); col.className = "dockCol"; col.style.width = (S.dock.widths[c] || 300) + "px";
+    const rz = document.createElement("div"); rz.className = "resizer"; rz.title = "Тягніть, щоб змінити ширину";
+    rz.addEventListener("mousedown", ev => {
+      ev.preventDefault(); const x0 = ev.clientX, w0 = col.offsetWidth;
+      const move = e => { const w = Math.max(200, Math.min(900, w0 - (e.clientX - x0))); col.style.width = w + "px"; S.dock.widths[c] = w; resize(); };
+      const up = () => { removeEventListener("mousemove", move); removeEventListener("mouseup", up); saveDock(); };
+      addEventListener("mousemove", move); addEventListener("mouseup", up);
+    });
+    col.append(rz);
+    col.addEventListener("dragover", ev => { ev.preventDefault(); col.classList.add("dropTarget"); });
+    col.addEventListener("dragleave", () => col.classList.remove("dropTarget"));
+    col.addEventListener("drop", ev => {
+      ev.preventDefault(); col.classList.remove("dropTarget");
+      const id = ev.dataTransfer.getData("text/plain"), p = S.panels.get(id); if (!p) return;
+      const before = [...col.querySelectorAll(".section")].find(sec => sec !== p && ev.clientY < sec.getBoundingClientRect().top + sec.offsetHeight / 2);
+      col.insertBefore(p, before || col.querySelector(".filler"));
+      S.dock.place[id] = c;
+      S.dock.order = [...document.querySelectorAll("#dock .section")].map(x => x.dataset.panel);
+      saveDock();
+    });
+    cols.push(col); dock.append(col);
+  }
+  for (const id of S.dock.order) { const p = S.panels.get(id); if (p) cols[Math.min(S.dock.place[id] || 0, n - 1)].append(p); }
+  for (const col of cols) { const f = document.createElement("div"); f.className = "filler"; col.append(f); }
+  resize();
+}
 $("showAuto").addEventListener("change", () => { recompute(); updateSelInfo(); draw(); });
 $("areaBtn").onclick = () => toggleArea();
 $("crawlAreaBtn").onclick = () => {
@@ -2016,6 +2212,9 @@ setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */
 (async function init() {
   setTool("rect"); setLayers(LAYER_BOTH); buildLegend(); syncToggles(); resize();
   try { S.hidden = new Set(JSON.parse(localStorage.getItem("tmc-hidden") || "[]")); } catch (e) {}
+  try { const lp = JSON.parse(localStorage.getItem("tmc-layer-prefs") || "{}"); S.locked = new Set(lp.locked || []); S.layerColours = lp.colours || {}; if (lp.sort) $("depthSort").value = lp.sort; } catch (e) {}
+  try { const hp = JSON.parse(localStorage.getItem("tmc-heat") || "{}"); for (const id of ["heatBottom", "heatTop", "heatSprites", "heatFollow"]) if (id in hp) $(id).checked = hp[id]; if (hp.mode) document.querySelector(`input[name=heatMode][value=${hp.mode}]`).checked = true; } catch (e) {}
+  setupDock(); syncHeatBtn();
   $("addr").value = localStorage.getItem("tmc-addr") || "localhost";
   /* Opened from the console itself (http://console:8333/): that is the address. */
   const servedByConsole = location.protocol === "http:" && location.port === String(PORT);
