@@ -138,6 +138,9 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <button class="toggle" data-check="showGrid" title="Сітка клітинок 8×8 і плиток 16×16 (G)">▦ Сітка</button>
       <button class="toggle" data-check="showHeat" title="Кольори висот (C): земля прозора, нижче — синє, вище — зелене → жовте → червоне → фіолетове">■ Кольори</button>
       <button class="toggle" data-check="showSprites" title="Спрайти гри: меблі, рами дверей…">☻ Спрайти</button>
+      <button class="toggle" data-check="showBottom" title="Нижній шар мапи (BG нижній): земля, підлога">▁ Нижній</button>
+      <button class="toggle" data-check="showTop" title="Верхній шар мапи: крони, дахи, верх стін">▔ Верхній</button>
+      <button id="onlySprites" title="Лише спрайти: сховати обидва шари мапи; ще раз — повернути (O)">Лише спрайти</button>
       <span class="sep" style="width:1px;background:var(--line)"></span>
       <button id="areaBtn" title="Мапа області: усі вже відкриті кімнати області на своїх місцях (M). Клік — відкрити кімнату, Ctrl+клік — перенести туди Лінка">Мапа області</button>
       <button id="crawlAreaBtn" title="Лінк по черзі відвідає кожну кімнату цієї області, а редактор збереже їх — тоді мапа області буде повна, і з кімнатами можна працювати без консолі">Обійти область</button>
@@ -531,13 +534,20 @@ function drawOam(r, shot, images, centres, own) {
 }
 /* Backgrounds and sprites stacked as the GBA does: priority 3 first; at one
  * priority the bottom map, the top map, then sprites. */
-function drawRoomPicture(g, r, layers, sprites, x0, y0, player) {
+function drawRoomPicture(g, r, layers, sprites, x0, y0, player, live) {
   g.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; g.fillRect(x0, y0, r.width, r.height);
   const showSprites = $("showSprites").checked;
   for (let p = 3; p >= 0; --p) {
     if ($("showBottom").checked && r.bg[0] && (r.bg[0] & 3) === p) g.drawImage(layers[0], x0, y0);
     if ($("showTop").checked && r.bg[1] && (r.bg[1] & 3) === p) g.drawImage(layers[1], x0, y0);
-    if (showSprites && sprites && !S.hidden.has("spr")) g.drawImage(sprites[p], x0, y0);
+    if (showSprites && sprites && !S.hidden.has("spr")) {
+      if (live) {
+        /* The snapshot outside the console's view, what it draws now inside. */
+        g.save(); g.beginPath(); g.rect(x0, y0, r.width, r.height); g.rect(x0 + live.x, y0 + live.y, live.w, live.h); g.clip("evenodd");
+        g.drawImage(sprites[p], x0, y0); g.restore();
+        for (const sp of live.sprites) if (sp.prio === p) g.drawImage(sp.cv, x0 + sp.x, y0 + sp.y);
+      } else g.drawImage(sprites[p], x0, y0);
+    }
     /* Link where he is now (GET /player), not where the room was taken. */
     if (showSprites && player && !S.hidden.has("link")) for (const sp of player) if (sp.prio === p) g.drawImage(sp.cv, x0 + sp.x, y0 + sp.y);
   }
@@ -547,7 +557,7 @@ function drawRoomPicture(g, r, layers, sprites, x0, y0, player) {
 function oamEntryCanvases(r, shot, pal, entries) {
   const out = [], oneD = (shot.dispcnt & 0x40) !== 0;
   const camX = shot.scrollX - r.originX, camY = shot.scrollY - r.originY;
-  for (const [a0, a1, a2] of entries) {
+  for (const [a0, a1, a2, flags] of entries) {
     const affine = (a0 & 0x100) !== 0, doubleSize = (a0 & 0x200) !== 0;
     if (!affine && doubleSize) continue;
     const gfx = (a0 >> 10) & 3; if (gfx === 2 || gfx === 3) continue;
@@ -571,7 +581,7 @@ function oamEntryCanvases(r, shot, pal, entries) {
       img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = alpha;
     }
     g.putImageData(img, 0, 0);
-    out.push({ prio, x: camX + x, y: camY + y, cv });
+    out.push({ prio, x: camX + x, y: camY + y, cv, link: !!(flags & 1) });
   }
   return out;
 }
@@ -586,6 +596,7 @@ const S = {
   /* Layers of the 3D view hidden by hand ("L:height", "spr", "link"), the
    * layer pictures with them cut out, which cells of a map layer draw at all,
    * and Link drawn live. */
+  live: null, liveRev: -1, liveAt: 0, liveBusy: false, mapRev: undefined, mapReloadAt: 0,
   hidden: new Set(), masked: null, cellPixels: null, player: null, playerSig: "", playerRev: -1, playerMovedAt: 0, playerBusy: false,
 };
 const $ = id => document.getElementById(id);
@@ -681,6 +692,14 @@ async function pollStatus() {
         S.selection.fill(0); S.selCount = 0; for (const i of cells) setSel(i, true); updateSelInfo(); draw();
       }
     }
+    /* The map itself changed (a rock broken, a bush cut, a door opened): take
+     * the room again, at most every few seconds. */
+    if (S.room && st.area === S.room.area && st.room === S.room.room && st.mapRev !== undefined) {
+      if (S.mapRev === undefined) S.mapRev = st.mapRev;
+      else if (st.mapRev !== S.mapRev && !st.transition && !S.followBusy && !S.drag && performance.now() - S.mapReloadAt > 3000) {
+        S.mapRev = st.mapRev; S.mapReloadAt = performance.now(); loadCurrentRoom();
+      }
+    } else S.mapRev = undefined;
     if (S.room && st.area === S.room.area && st.room === S.room.room) { S.linkPos = [st.linkX, st.linkY]; S.camera = [st.scrollX - st.originX, st.scrollY - st.originY]; draw(); }
     markCurrentRoomInTree();
   } catch (e) { setChip("зв'язок перервано", "bad"); }
@@ -941,6 +960,7 @@ function showRoom(room) {
   S.layerImg = [renderLayer(room, 0), renderLayer(room, 1)];
   S.spriteImg = renderSprites(room);
   measureCellPixels(room); S.masked = null;
+  S.live = null; S.liveRev = -1;
   if (!sameRoom) { S.selection.fill(0); S.selCount = 0; S.selEntity = null; S.undo = []; S.redo = []; S.player = null; S.playerSig = ""; fitView(); }
   $("empty").style.display = "none";
   recompute(); updateSelInfo(); renderEntities(); renderRules(); draw(); markCurrentRoomInTree();
@@ -966,7 +986,7 @@ function draw() {
   ctx.setTransform(S.zoom, 0, 0, S.zoom, S.panX, S.panY);
   const [c0, c1] = rgb555(r.palette[0]);
   if ($("preview3d").checked) { drawAnaglyph(); }
-  else drawRoomPicture(ctx, r, visibleLayers(), S.spriteImg, 0, 0, S.player);
+  else drawRoomPicture(ctx, r, visibleLayers(), S.spriteImg, 0, 0, S.player, S.live);
   /* Visible cells only. */
   const vx0 = Math.max(0, Math.floor(-S.panX / S.zoom / 8)), vy0 = Math.max(0, Math.floor(-S.panY / S.zoom / 8));
   const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
@@ -1527,6 +1547,7 @@ window.addEventListener("keydown", ev => {
   else if (k === "1") setLayers(LAYER_BOTH); else if (k === "2") setLayers(LAYER_BOTTOM); else if (k === "3") setLayers(LAYER_TOP);
   else if (k === "v") toggle("liveOn");
   else if (k === "s") toggle("showSel");
+  else if (k === "o") onlySprites();
   else if (k === "m") toggleArea();
   else if (k === "g") toggle("showGrid"); else if (k === "c") toggle("showHeat"); else if (k === "p") toggle("preview3d");
   else if (k === "f1") { ev.preventDefault(); $("helpDlg").showModal(); }
@@ -1748,7 +1769,7 @@ function parsePlayer(buf) {
   if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== "TMCP") throw new Error("не той формат");
   const p = { dispcnt: dv.getUint16(4, true), scrollX: dv.getInt16(6, true), scrollY: dv.getInt16(8, true), entries: [], objVram: new Uint8Array(0x8000) };
   const n = dv.getUint16(10, true), tiles = dv.getUint16(12, true); let off = 14;
-  for (let i = 0; i < n; ++i, off += 6) p.entries.push([dv.getUint16(off, true), dv.getUint16(off + 2, true), dv.getUint16(off + 4, true)]);
+  for (let i = 0; i < n; ++i, off += 8) p.entries.push([dv.getUint16(off, true), dv.getUint16(off + 2, true), dv.getUint16(off + 4, true), dv.getUint16(off + 6, true)]);
   for (let i = 0; i < tiles; ++i) { const slot = dv.getUint16(off, true); p.objVram.set(u8.subarray(off + 2, off + 34), slot * 32); off += 34; }
   p.palette = new Uint16Array(buf.slice(off, off + 0x200));
   return p;
@@ -1776,6 +1797,23 @@ async function playerTick() {
       }
     } catch (e) {}
     S.playerBusy = false;
+  }
+  /* Every other sprite in the console's view -- a rock pushed, a pot thrown --
+   * at most once a second, when they changed. */
+  if (here && !S.areaView && !document.hidden && $("showSprites").checked && !S.liveBusy &&
+      st.spriteRev !== S.liveRev && now - S.liveAt > 1000) {
+    S.liveBusy = true; S.liveAt = now;
+    try {
+      const rev = st.spriteRev, buf = await api("/player?all=1", { binary: true, timeout: 4000 });
+      S.liveRev = rev;
+      if (S.room === r) {
+        const p = parsePlayer(buf);
+        S.live = { x: p.scrollX - r.originX, y: p.scrollY - r.originY, w: st.viewW || 240, h: st.viewH || 160,
+                   sprites: oamEntryCanvases(r, p, [...p.palette].map(rgb555), p.entries).filter(sp => !sp.link) };
+        draw();
+      }
+    } catch (e) {}
+    S.liveBusy = false;
   }
   setTimeout(playerTick, 250);
 }
@@ -1950,6 +1988,13 @@ $("buildInput").addEventListener("change", () => { const f = $("buildInput").fil
 $("roomSearch").addEventListener("input", renderRoomTree);
 for (const id of ["showBottom", "showTop", "showSprites", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", () => { syncToggles(); draw(); });
 $("showSel").addEventListener("change", () => { draw(); if (S.connected) api(`/highlight?show=${$("showSel").checked ? 1 : 0}`, { method: "POST" }).catch(() => {}); });
+function onlySprites() {
+  const only = !$("showBottom").checked && !$("showTop").checked && $("showSprites").checked;
+  if (only) { $("showBottom").checked = S.beforeOnly ? S.beforeOnly[0] : true; $("showTop").checked = S.beforeOnly ? S.beforeOnly[1] : true; }
+  else { S.beforeOnly = [$("showBottom").checked, $("showTop").checked]; $("showBottom").checked = false; $("showTop").checked = false; $("showSprites").checked = true; }
+  syncToggles(); draw();
+}
+$("onlySprites").addEventListener("click", onlySprites);
 $("depthAll").addEventListener("click", () => { S.hidden.clear(); saveHidden(); S.masked = null; renderDepthLayers(); draw(); });
 $("showAuto").addEventListener("change", () => { recompute(); updateSelInfo(); draw(); });
 $("areaBtn").onclick = () => toggleArea();

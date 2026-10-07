@@ -128,6 +128,8 @@ static unsigned sFrame;
 static unsigned sQuitIn;
 static bool sHighlightHidden;
 static void CopyOamWithoutLink(u16* out);
+extern int Port_Widescreen_GameplayViewWidth(void);
+extern int Port_Widescreen_GameplayViewHeight(void);
 static unsigned sQuitAt;
 enum { QUIT_AFTER_UPLOAD_FRAMES = 60 * 3 };
 /* Time (CPU ticks) a paused frame may spend taking an upload, so the
@@ -701,12 +703,14 @@ static void CopyOamWithoutLink(u16* out) {
     }
 }
 
-/* Changes whenever Link's own sprites do (pose, place, camera, palette). */
-static unsigned PlayerSpriteRevision(void) {
+/* Changes whenever Link's own sprites do (pose, place, camera, palette);
+ * with `others`, whenever the rest of the room's sprites do. */
+static unsigned SpriteRevision(bool others) {
     const u16* oam = (const u16*)gOamMem;
     uint32_t hash = 2166136261u;
     for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
-        if (virtuappu_mode1_obj_player[i]) {
+        const bool hud = ((oam[i * 4 + 2] >> 10) & 3) == 0;
+        if (others ? !virtuappu_mode1_obj_player[i] && !hud : virtuappu_mode1_obj_player[i]) {
             for (int k = 0; k < 3; ++k) {
                 hash = (hash ^ (uint32_t)(oam[i * 4 + k] + i)) * 16777619u;
             }
@@ -717,11 +721,34 @@ static unsigned PlayerSpriteRevision(void) {
     return (unsigned)(hash & 0x7fffffffu);
 }
 
-/* GET /player: Link's sprites as the console draws them now --
+/* Changes when the room's map does: a rock broken, a bush cut, a door open. */
+static unsigned MapRevision(void) {
+    uint32_t hash = 2166136261u;
+    const int cols = gRoomControls.width / 16, rows = gRoomControls.height / 16;
+    for (int row = 0; row < rows && row < 64; ++row) {
+        for (int col = 0; col < cols && col < 64; ++col) {
+            const int i = row * 64 + col;
+            hash = (hash ^ gMapBottom.mapData[i]) * 16777619u;
+            hash = (hash ^ gMapTop.mapData[i]) * 16777619u;
+        }
+    }
+    return (unsigned)(hash & 0x7fffffffu);
+}
+
+/* GET /player[?all=1]: Link's sprites as the console draws them now, or with
+ * all=1 every sprite but the HUD's --
  *   "TMCP", u16 DISPCNT, s16 scrollX, s16 scrollY (absolute), u16 entries,
- *   u16 tiles; entries x (u16 attr0, attr1, attr2); tiles x (u16 slot,
- *   32 bytes of object VRAM at slot * 32); then the object palette (0x200). */
-static void AnswerPlayer(Client* client) {
+ *   u16 tiles; entries x (u16 attr0, attr1, attr2, u16 flags: bit 0 Link's);
+ *   tiles x (u16 slot, 32 bytes of object VRAM at slot * 32); then the
+ *   object palette (0x200). */
+static bool PlayerWanted(const u16* oam, int i, bool all) {
+    if ((oam[i * 4] >> 14) == 3) {
+        return false;
+    }
+    return all ? ((oam[i * 4 + 2] >> 10) & 3) != 0 : virtuappu_mode1_obj_player[i] != 0;
+}
+
+static void AnswerPlayer(Client* client, bool all) {
     const u16* oam = (const u16*)gOamMem;
     const u16 dispcnt = (u16)(gIoMem[0] | (gIoMem[1] << 8));
     static const u8 kSizes[3][4][2] = { { { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
@@ -731,13 +758,13 @@ static void AnswerPlayer(Client* client) {
     memset(used, 0, sizeof(used));
     int entries = 0, tiles = 0;
     for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
-        if (!virtuappu_mode1_obj_player[i]) {
+        if (!PlayerWanted(oam, i, all)) {
             continue;
         }
         const u16 a0 = oam[i * 4], a1 = oam[i * 4 + 1], a2 = oam[i * 4 + 2];
         const int shape = a0 >> 14;
-        if (shape == 3) {
-            continue;
+        if (!(a0 & 0x100) && (a0 & 0x200)) {
+            continue; /* hidden */
         }
         ++entries;
         const int w = kSizes[shape][a1 >> 14][0], h = kSizes[shape][a1 >> 14][1];
@@ -763,8 +790,9 @@ static void AnswerPlayer(Client* client) {
     PutU16(&b, (unsigned)entries);
     PutU16(&b, (unsigned)tiles);
     for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
-        if (virtuappu_mode1_obj_player[i] && (oam[i * 4] >> 14) != 3) {
+        if (PlayerWanted(oam, i, all) && !(!(oam[i * 4] & 0x100) && (oam[i * 4] & 0x200))) {
             Put(&b, &oam[i * 4], 6);
+            PutU16(&b, virtuappu_mode1_obj_player[i] ? 1u : 0u);
         }
     }
     for (int slot = 0; slot < 1024; ++slot) {
@@ -821,7 +849,7 @@ static void AnswerStatus(Client* client) {
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
          "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u,\"editorCells\":%s,"
-         "\"editorSel\":%d,\"playerRev\":%u}",
+         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -833,7 +861,8 @@ static void AnswerStatus(Client* client) {
          sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
          gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
          HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree(), cellsInfo,
-         PortStereoEditor_SelectedCount(), PlayerSpriteRevision());
+         PortStereoEditor_SelectedCount(), SpriteRevision(false), SpriteRevision(true), MapRevision(),
+         Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight());
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -1380,7 +1409,7 @@ static void Answer(Client* client) {
         }
         Respond(client, 200, "application/json", text, strlen(text));
     } else if (strcmp(target, "/player") == 0) {
-        AnswerPlayer(client);
+        AnswerPlayer(client, QueryInt(query, "all", 0) != 0);
     } else if (strcmp(target, "/entities") == 0) {
         AnswerEntities(client);
     } else if (strcmp(target, "/edits") == 0) {
