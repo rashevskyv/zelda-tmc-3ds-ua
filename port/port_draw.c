@@ -434,6 +434,7 @@ static void RenderSpritePieces(const u8* data, /* pointer to frame data (count b
         memset(virtuappu_mode1_obj_clip_mark_staged, 0, MODE1_GBA_OAM_COUNT);
         memset(virtuappu_mode1_obj_y_negative_staged, 0, MODE1_GBA_OAM_COUNT);
         memset(virtuappu_mode1_obj_stereo_depth_staged, 0, MODE1_GBA_OAM_COUNT);
+        memset(virtuappu_mode1_obj_player_staged, 0, MODE1_GBA_OAM_COUNT);
         virtuappu_mode1_obj_clip_enable_staged = 0;
     }
     int sSwampClipActive = (sRenderingPlayer && gPlayerState.floor_type == SURFACE_SWAMP &&
@@ -511,6 +512,7 @@ static void RenderSpritePieces(const u8* data, /* pointer to frame data (count b
          */
         virtuappu_mode1_obj_y_negative_staged[updated] = y < 0;
         virtuappu_mode1_obj_stereo_depth_staged[updated] = sStereoDepthTag;
+        virtuappu_mode1_obj_player_staged[updated] = sRenderingPlayer ? 1 : 0;
         u32 oamWord = (u32)(y & 0xFF);            /* y position */
         oamWord |= (u32)((x & 0x1FF)) << 16;      /* x position */
         oamWord |= flags;                         /* base flags */
@@ -576,6 +578,7 @@ void ram_DrawDirect(OAMCommand* cmd, u32 spriteIndex, u32 frameIndex) {
     u16 cmdExtra = cmd->_8;
 
     sStereoDepthTag = gPortStereoDirectDepth;
+    sRenderingPlayer = 0;
     RenderSpritePieces(frameData, baseX, baseY, cmdFlags, cmdExtra);
 }
 
@@ -603,6 +606,7 @@ void ram_sub_080ADA04(OAMCommand* cmd, void* frameDataPtr) {
     u16 cmdExtra = cmd->_8;
 
     sStereoDepthTag = gPortStereoDirectDepth;
+    sRenderingPlayer = 0;
     RenderSpritePieces(frameData, baseX, baseY, cmdFlags, cmdExtra);
 }
 
@@ -1181,6 +1185,7 @@ static void ProcessDeferredList(void) {
         if (frameData == NULL)
             continue;
         sStereoDepthTag = de->stereoDepth;
+        sRenderingPlayer = 0;
         RenderSpritePieces(frameData, (s16)screenX, (s16)screenY, 0, extra);
     }
     sStereoDepthTag = 0;

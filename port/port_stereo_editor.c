@@ -16,6 +16,7 @@
 #include "entity.h"
 #include "main.h"
 #include "map.h"
+#include "player.h"
 #include "room.h"
 
 #include <stdio.h>
@@ -773,6 +774,29 @@ void PortStereoEditor_SelectRun(int area, int room, int row, int col0, int col1)
     if (sOpen) {
         PublishStatus();
     }
+}
+
+/* GET /editor: the bottom-screen editor's geometry, to tell from the PC why
+ * its cells and the picture under them might not agree. */
+void PortStereoEditor_Geometry(char* out, size_t size) {
+    extern int Port_Widescreen_GameplayViewWidth(void);
+    extern int Port_Widescreen_GameplayViewHeight(void);
+    const float s = Scale();
+    snprintf(out, size,
+             "{\"open\":%s,\"frameW\":%d,\"frameH\":%d,\"zoom\":%d,\"scale\":%.3f,\"panX\":%.2f,\"panY\":%.2f,"
+             "\"roomScreenX\":%d,\"roomScreenY\":%d,\"scrollX\":%d,\"scrollY\":%d,\"originX\":%d,\"originY\":%d,"
+             "\"roomW\":%d,\"roomH\":%d,\"viewW\":%d,\"viewH\":%d,\"linkScreenX\":%.0f,\"linkScreenY\":%.0f,"
+             "\"firstCol\":%d,\"firstRow\":%d,\"selected\":%d,\"sel\":[%d,%d,%d,%d]}",
+             sOpen ? "true" : "false", sFrameW, sFrameH, sZoom, s, sPanX, sPanY, RoomScreenX(), RoomScreenY(),
+             (int)gRoomControls.scroll_x, (int)gRoomControls.scroll_y, (int)gRoomControls.origin_x,
+             (int)gRoomControls.origin_y, (int)gRoomControls.width, (int)gRoomControls.height,
+             Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight(),
+             EntityScreenX(&gPlayerEntity.base), EntityScreenY(&gPlayerEntity.base),
+             CellCol(sPanX > 0 ? sPanX : 0), CellRow(sPanY > 0 ? sPanY : 0), sSelected, sCol0, sRow0, sCol1, sRow1);
+}
+
+int PortStereoEditor_SelectedCount(void) {
+    return sSel == SEL_CELLS ? sSelected : sSel == SEL_ENTITY ? -1 : 0;
 }
 
 unsigned PortStereoEditor_SelectionRevision(void) {

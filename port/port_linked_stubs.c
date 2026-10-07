@@ -638,6 +638,13 @@ void sub_080085CC(Entity* ent) {
     collisions |= (u16)(TileCollisionLookup((u32)(baseX - (s32)innerX), (u32)(baseY + (s32)innerY), ent) << 5);
     collisions |= (u16)(TileCollisionLookup((u32)(baseX + (s32)innerX), (u32)(baseY - (s32)innerY), ent) << 2);
     collisions |= (u16)(TileCollisionLookup((u32)(baseX - (s32)innerX), (u32)(baseY - (s32)innerY), ent) << 1);
+    /* Walking through walls (the debug toggle, or a stereo editor open):
+     * Link moves by this routine, not by CalculateEntityTileCollisions,
+     * so the hook in src/movement.c alone never reached him. */
+    extern int Port_Debug_NoclipEnabled(void);
+    if (ent == &gPlayerEntity.base && Port_Debug_NoclipEnabled()) {
+        collisions = 0;
+    }
     ent->collisions = collisions;
 }
 

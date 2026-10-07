@@ -57,6 +57,7 @@
 #include "save.h"
 #include "port_gba_mem.h"
 #include "port_rom.h"
+#include "cpu/mode1.h"
 
 #include <errno.h>
 #include <malloc.h>
@@ -125,6 +126,8 @@ static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
+static bool sHighlightHidden;
+static void CopyOamWithoutLink(u16* out);
 static unsigned sQuitAt;
 enum { QUIT_AFTER_UPLOAD_FRAMES = 60 * 3 };
 /* Time (CPU ticks) a paused frame may spend taking an upload, so the
@@ -488,7 +491,7 @@ static void SweepTick(void) {
         shot->scrollX = gRoomControls.scroll_x;
         shot->scrollY = gRoomControls.scroll_y;
         shot->dispcnt = (u16)(gIoMem[0] | (gIoMem[1] << 8));
-        memcpy(shot->oam, gOamMem, sizeof(shot->oam));
+        CopyOamWithoutLink((u16*)shot->oam);
         memcpy(shot->objVram, gVram + 0x10000, sizeof(shot->objVram));
         sSweep.shots[sSweep.shotCount++] = shot;
     } else {
@@ -687,6 +690,94 @@ static const RoomHeader* RoomHeaderOf(int area, int room) {
  * and the free pieces of what was (3DS: libctru's __ctru_heap_size). */
 extern unsigned PortStereoLink_LinearFree(void);
 
+/* OAM as drawn, less Link: the PC editor draws him apart, where he is now,
+ * so the room's picture must not keep him where he stood when it was taken. */
+static void CopyOamWithoutLink(u16* out) {
+    memcpy(out, gOamMem, 0x400);
+    for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
+        if (virtuappu_mode1_obj_player[i]) {
+            out[i * 4] = 0x0200; /* not affine, "double size": hidden */
+        }
+    }
+}
+
+/* Changes whenever Link's own sprites do (pose, place, camera, palette). */
+static unsigned PlayerSpriteRevision(void) {
+    const u16* oam = (const u16*)gOamMem;
+    uint32_t hash = 2166136261u;
+    for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
+        if (virtuappu_mode1_obj_player[i]) {
+            for (int k = 0; k < 3; ++k) {
+                hash = (hash ^ (uint32_t)(oam[i * 4 + k] + i)) * 16777619u;
+            }
+        }
+    }
+    hash = (hash ^ (uint32_t)(u16)gRoomControls.scroll_x) * 16777619u;
+    hash = (hash ^ (uint32_t)(u16)gRoomControls.scroll_y) * 16777619u;
+    return (unsigned)(hash & 0x7fffffffu);
+}
+
+/* GET /player: Link's sprites as the console draws them now --
+ *   "TMCP", u16 DISPCNT, s16 scrollX, s16 scrollY (absolute), u16 entries,
+ *   u16 tiles; entries x (u16 attr0, attr1, attr2); tiles x (u16 slot,
+ *   32 bytes of object VRAM at slot * 32); then the object palette (0x200). */
+static void AnswerPlayer(Client* client) {
+    const u16* oam = (const u16*)gOamMem;
+    const u16 dispcnt = (u16)(gIoMem[0] | (gIoMem[1] << 8));
+    static const u8 kSizes[3][4][2] = { { { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
+                                         { { 16, 8 }, { 32, 8 }, { 32, 16 }, { 64, 32 } },
+                                         { { 8, 16 }, { 8, 32 }, { 16, 32 }, { 32, 64 } } };
+    static u8 used[1024];
+    memset(used, 0, sizeof(used));
+    int entries = 0, tiles = 0;
+    for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
+        if (!virtuappu_mode1_obj_player[i]) {
+            continue;
+        }
+        const u16 a0 = oam[i * 4], a1 = oam[i * 4 + 1], a2 = oam[i * 4 + 2];
+        const int shape = a0 >> 14;
+        if (shape == 3) {
+            continue;
+        }
+        ++entries;
+        const int w = kSizes[shape][a1 >> 14][0], h = kSizes[shape][a1 >> 14][1];
+        const int step = (a0 & 0x2000) ? 2 : 1, oneD = (dispcnt & 0x40) != 0;
+        for (int ty = 0; ty < h / 8; ++ty) {
+            for (int tx = 0; tx < w / 8; ++tx) {
+                const int t = (a2 & 0x3ff) + (oneD ? (ty * (w / 8) + tx) * step : ty * 32 + tx * step);
+                for (int k = 0; k < step; ++k) {
+                    const int slot = (t + k) & 0x3ff;
+                    if (!used[slot]) {
+                        used[slot] = 1;
+                        ++tiles;
+                    }
+                }
+            }
+        }
+    }
+    Buffer b = { 0 };
+    Put(&b, "TMCP", 4);
+    PutU16(&b, dispcnt);
+    PutU16(&b, (unsigned)(u16)gRoomControls.scroll_x);
+    PutU16(&b, (unsigned)(u16)gRoomControls.scroll_y);
+    PutU16(&b, (unsigned)entries);
+    PutU16(&b, (unsigned)tiles);
+    for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
+        if (virtuappu_mode1_obj_player[i] && (oam[i * 4] >> 14) != 3) {
+            Put(&b, &oam[i * 4], 6);
+        }
+    }
+    for (int slot = 0; slot < 1024; ++slot) {
+        if (used[slot]) {
+            PutU16(&b, (unsigned)slot);
+            Put(&b, gVram + 0x10000 + slot * 32, 32);
+        }
+    }
+    Put(&b, gPaletteBuffer + 256, 0x200);
+    RespondBuffer(client, "application/octet-stream", &b);
+}
+extern void PlatformGpu3DS_EditorCellsInfo(char* out, size_t size);
+
 static unsigned HeapLeft(void) {
 #ifdef TMC_3DS
     extern u32 __ctru_heap_size;
@@ -721,13 +812,16 @@ static void AnswerStatus(Client* client) {
         }
     }
     const RoomHeader* header = RoomHeaderOf(gRoomControls.area, gRoomControls.room);
+    char cellsInfo[128];
+    PlatformGpu3DS_EditorCellsInfo(cellsInfo, sizeof(cellsInfo));
     PutF(&b,
          "{\"inGame\":%s,\"live\":%s,\"area\":%u,\"room\":%u,\"width\":%u,\"height\":%u,"
          "\"originX\":%u,\"originY\":%u,\"scrollX\":%d,\"scrollY\":%d,\"linkX\":%d,\"linkY\":%d,"
          "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
-         "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u}",
+         "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u,\"editorCells\":%s,"
+         "\"editorSel\":%d,\"playerRev\":%u}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -738,7 +832,8 @@ static void AnswerStatus(Client* client) {
          gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
          sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
          gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
-         HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree());
+         HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree(), cellsInfo,
+         PortStereoEditor_SelectedCount(), PlayerSpriteRevision());
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -889,7 +984,11 @@ static void AnswerRoom(Client* client) {
     Put(&b, "OAMS", 4);
     PutU16(&b, (unsigned)(gIoMem[0] | (gIoMem[1] << 8)));
     PutU16(&b, 0);
-    Put(&b, gOamMem, 0x400);
+    {
+        static u16 oam[0x200];
+        CopyOamWithoutLink(oam);
+        Put(&b, oam, 0x400);
+    }
     Put(&b, gVram + 0x10000, 0x8000);
     Put(&b, gPaletteBuffer + 256, 0x200);
     /* The camera tour's sprites, for this room. */
@@ -1143,7 +1242,7 @@ static bool Highlighted(int col, int row) {
 /* The outline of the cells the PC editor points at, as one-pixel lines in
  * GBA screen coordinates {x, y, w, h}: runs of cell edges joined. */
 int PortStereoLink_Highlight(float (*rects)[4], int max) {
-    if (!sEnabled || sHighlightCount == 0 || sHighlightRoom != ((gRoomControls.area << 8) | gRoomControls.room) ||
+    if (!sEnabled || sHighlightHidden || sHighlightCount == 0 || sHighlightRoom != ((gRoomControls.area << 8) | gRoomControls.room) ||
         !InGame()) {
         return 0;
     }
@@ -1271,12 +1370,28 @@ static void Answer(Client* client) {
     } else if (strcmp(target, "/frame") == 0) {
         PortStereoLink_FrameRequest();
         client->frameWait = 1;
+    } else if (strcmp(target, "/editor") == 0) {
+        char text[768], cells[128];
+        PortStereoEditor_Geometry(text, sizeof(text));
+        PlatformGpu3DS_EditorCellsInfo(cells, sizeof(cells));
+        const size_t n = strlen(text);
+        if (n > 0 && n + strlen(cells) + 16 < sizeof(text)) {
+            snprintf(text + n - 1, sizeof(text) - (n - 1), ",\"cells\":%s}", cells);
+        }
+        Respond(client, 200, "application/json", text, strlen(text));
+    } else if (strcmp(target, "/player") == 0) {
+        AnswerPlayer(client);
     } else if (strcmp(target, "/entities") == 0) {
         AnswerEntities(client);
     } else if (strcmp(target, "/edits") == 0) {
         AnswerEdits(client, query, post, body, bodyLength);
     } else if (post && strcmp(target, "/goto") == 0) {
         AnswerGoto(client, query);
+    } else if (post && strcmp(target, "/highlight") == 0) {
+        /* The PC editor's "show the selection": the frame on the top screen
+         * goes, the selection stays. */
+        sHighlightHidden = QueryInt(query, "show", 1) == 0;
+        RespondText(client, 200, "ok");
     } else if (post && strcmp(target, "/select") == 0) {
         AnswerSelect(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/file") == 0) {

@@ -13,6 +13,9 @@
  *   GET  /rooms                      every room of every area, as JSON
  *   GET  /room                       the current room, binary (see the editor)
  *   GET  /entities                   the current room's entities, as JSON
+ *   GET  /player                     Link's own sprites as drawn now (/room's
+ *                                    sprites leave him out); status playerRev
+ *                                    changes when they do
  *   GET  /cell?col=&row=             a cell's heights as the relief uses them
  *   GET  /selection                  the console's 3D editor selection
  *                                    ("area room", then "row col0 col1")
@@ -27,6 +30,7 @@
  *   POST /goto?area=&room=&x=&y=     send Link there (x, y in the room)
  *   POST /select?area=&room=         frame cells on the top screen; body
  *                                    "row col0 col1" lines, empty to clear
+ *   POST /highlight?show=0|1         hide or show that frame (the selection stays)
  *   POST /save                       write stereo_edits.txt
  *   POST /file?name=x.3dsx[&quit=0]  a new build into sdmc:/3ds/ (3DSX only); the
  *                                    game then quits to the Homebrew Launcher

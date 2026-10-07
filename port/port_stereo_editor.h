@@ -95,6 +95,10 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
 void PortStereoEditor_ClearSelection(int area, int room);
 void PortStereoEditor_SelectRun(int area, int room, int row, int col0, int col1);
 unsigned PortStereoEditor_SelectionRevision(void);
+/* Cells selected now (-1: a sprite is). */
+int PortStereoEditor_SelectedCount(void);
+/* The editor's geometry as JSON, for GET /editor. */
+void PortStereoEditor_Geometry(char* out, size_t size);
 char* PortStereoEditor_SelectionText(size_t* length);
 
 /* The room list (the "К" button, which also closes it): up to PORT_STEREO_EDITOR_LIST_ROWS lines

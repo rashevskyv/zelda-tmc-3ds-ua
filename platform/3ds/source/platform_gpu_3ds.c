@@ -1082,6 +1082,14 @@ enum {
 };
 static C3D_Tex sEditorCells;
 static bool sEditorCellsReady;
+/* For /status: whether the colour layer could be made, and what it last drew. */
+static int sEditorCellsState; /* 0 not yet, 1 made, -1 could not */
+static unsigned sEditorCellsDraws, sEditorCellsSelected, sEditorCellsCols, sEditorCellsRows;
+
+void PlatformGpu3DS_EditorCellsInfo(char* out, size_t size) {
+    snprintf(out, size, "{\"tex\":%d,\"draws\":%u,\"cols\":%u,\"rows\":%u,\"selected\":%u}",
+             sEditorCellsState, sEditorCellsDraws, sEditorCellsCols, sEditorCellsRows, sEditorCellsSelected);
+}
 
 /* Texel (x, y) of a square RGBA8 texture, y down, in the GPU's tiled order:
  * 8x8 tiles from the bottom row up, Morton order inside a tile. */
@@ -1099,8 +1107,10 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
             static bool told;
             if (!told) Platform3DS_Debug("[tmc3ds] stereo editor: no memory for the cell colours\n");
             told = true;
+            sEditorCellsState = -1;
             return;
         }
+        sEditorCellsState = 1;
         C3D_TexSetFilter(&sEditorCells, GPU_NEAREST, GPU_NEAREST);
         C3D_TexSetWrap(&sEditorCells, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
         sEditorCellsReady = true;
@@ -1109,6 +1119,15 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
     /* Only the cells in use: the texture is sampled no further. */
     const unsigned usedW = (unsigned)view->cellCols * EDITOR_CELL_TEXELS;
     const unsigned usedH = (unsigned)view->cellRows * EDITOR_CELL_TEXELS;
+    ++sEditorCellsDraws;
+    sEditorCellsCols = (unsigned)view->cellCols;
+    sEditorCellsRows = (unsigned)view->cellRows;
+    sEditorCellsSelected = 0;
+    for (int i = 0; i < view->cellRows; ++i) {
+        for (int j = 0; j < view->cellCols; ++j) {
+            sEditorCellsSelected += view->cellSelected[i * PORT_STEREO_EDITOR_CELLS + j] ? 1u : 0u;
+        }
+    }
     for (unsigned y = 0; y < usedH; ++y) {
         for (unsigned x = 0; x < usedW; ++x) {
             const unsigned at = (y / EDITOR_CELL_TEXELS) * PORT_STEREO_EDITOR_CELLS + x / EDITOR_CELL_TEXELS;

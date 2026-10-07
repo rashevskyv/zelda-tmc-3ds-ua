@@ -115,6 +115,10 @@ extern int virtuappu_mode1_obj_clip_enable_staged;
 extern uint8_t virtuappu_mode1_bg_stereo_depth[MODE1_GBA_BG_COUNT];
 extern uint8_t virtuappu_mode1_obj_stereo_depth[MODE1_GBA_OAM_COUNT];
 extern uint8_t virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
+/* Which OAM entries are Link's own (the PC stereo editor draws him live,
+ * apart from the room's sprites); staged and committed like the depths. */
+extern uint8_t virtuappu_mode1_obj_player[MODE1_GBA_OAM_COUNT];
+extern uint8_t virtuappu_mode1_obj_player_staged[MODE1_GBA_OAM_COUNT];
 void virtuappu_mode1_commit_obj_metadata(void);
 
 /* Runtime WIP widescreen HUD anchor. BG0 stays 32 tiles wide, but gameplay

@@ -69,6 +69,14 @@ footer b { color: var(--text); font-weight: 500; }
 .listItem:hover { background: var(--panel2); }
 .listItem.sel { background: #1b3a4b; }
 .listItem .v { color: var(--accent2); min-width: 26px; text-align: right; }
+#depthList { max-height: 320px; overflow: auto; margin-top: 6px; }
+.depthItem { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 5px; }
+.depthItem:hover { background: var(--panel2); }
+.depthItem.off .name, .depthItem.off .sw { opacity: .4; }
+.depthItem .eye { cursor: pointer; width: 20px; text-align: center; user-select: none; }
+.depthItem .sw { width: 14px; height: 12px; border-radius: 2px; border: 1px solid #444; flex: none; }
+.depthItem .name { flex: 1; cursor: pointer; }
+.depthItem .v { color: var(--dim); font-size: 11px; white-space: nowrap; }
 .muted { color: var(--dim); }
 .small { font-size: 11px; }
 dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; max-width: 720px; }
@@ -168,6 +176,12 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       </div>
     </div>
     <div class="section">
+      <h3>Шари 3D</h3>
+      <div class="small muted">Кожна глибина, на якій стоять клітинки мапи, — окремий шар, від найближчого до найдальшого. Око — показати чи сховати (Alt+клік — лише цей). Клік по назві — виділити клітинки шару (Shift — додати).</div>
+      <div class="row"><button id="depthAll" title="Показати всі шари">показати всі</button></div>
+      <div id="depthList"></div>
+    </div>
+    <div class="section">
       <h3>Висота виділеного</h3>
       <div id="selInfo" class="small muted">нічого не виділено</div>
       <div class="row">
@@ -219,6 +233,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
         <label><input type="checkbox" id="showGrid" checked> сітка</label>
         <label title="Спрайти гри: меблі, рами дверей тощо — як були в кадрі консолі, коли кімнату знято"><input type="checkbox" id="showSprites" checked> спрайти гри</label>
         <label title="Рамки об'єктів кімнати для вибору й правок глибини"><input type="checkbox" id="showEntities" checked> рамки об'єктів</label>
+        <label title="Рамка виділення тут і на верхньому екрані консолі; виділення лишається, лише не заважає дивитися на глибину (S)"><input type="checkbox" id="showSel" checked> показувати виділення</label>
         <label><input type="checkbox" id="showAuto"> лише автоматика</label>
       </div>
       <div class="row">
@@ -516,13 +531,49 @@ function drawOam(r, shot, images, centres, own) {
 }
 /* Backgrounds and sprites stacked as the GBA does: priority 3 first; at one
  * priority the bottom map, the top map, then sprites. */
-function drawRoomPicture(g, r, layers, sprites, x0, y0) {
+function drawRoomPicture(g, r, layers, sprites, x0, y0, player) {
   g.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; g.fillRect(x0, y0, r.width, r.height);
+  const showSprites = $("showSprites").checked;
   for (let p = 3; p >= 0; --p) {
     if ($("showBottom").checked && r.bg[0] && (r.bg[0] & 3) === p) g.drawImage(layers[0], x0, y0);
     if ($("showTop").checked && r.bg[1] && (r.bg[1] & 3) === p) g.drawImage(layers[1], x0, y0);
-    if ($("showSprites").checked && sprites) g.drawImage(sprites[p], x0, y0);
+    if (showSprites && sprites && !S.hidden.has("spr")) g.drawImage(sprites[p], x0, y0);
+    /* Link where he is now (GET /player), not where the room was taken. */
+    if (showSprites && player && !S.hidden.has("link")) for (const sp of player) if (sp.prio === p) g.drawImage(sp.cv, x0 + sp.x, y0 + sp.y);
   }
+}
+/* Sprites of a few OAM entries, each on its own small canvas at its place in
+ * the room. */
+function oamEntryCanvases(r, shot, pal, entries) {
+  const out = [], oneD = (shot.dispcnt & 0x40) !== 0;
+  const camX = shot.scrollX - r.originX, camY = shot.scrollY - r.originY;
+  for (const [a0, a1, a2] of entries) {
+    const affine = (a0 & 0x100) !== 0, doubleSize = (a0 & 0x200) !== 0;
+    if (!affine && doubleSize) continue;
+    const gfx = (a0 >> 10) & 3; if (gfx === 2 || gfx === 3) continue;
+    const shape = a0 >> 14; if (shape === 3) continue;
+    const [w, h] = OBJ_SIZES[shape][a1 >> 14];
+    let x = a1 & 511; if (x & 256) x -= 512;
+    let y = a0 & 255; if (y >= 160) y -= 256;
+    if (affine && doubleSize) { x += w / 2; y += h / 2; }
+    const hf = !affine && (a1 & 0x1000), vf = !affine && (a1 & 0x2000), c256 = (a0 & 0x2000) !== 0;
+    const tile = a2 & 0x3ff, prio = (a2 >> 10) & 3, bank = (a2 >> 12) * 16, alpha = gfx === 1 ? 160 : 255;
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const g = cv.getContext("2d"), img = g.createImageData(w, h), step = c256 ? 2 : 1;
+    for (let py = 0; py < h; ++py) for (let px = 0; px < w; ++px) {
+      const sx = hf ? w - 1 - px : px, sy = vf ? h - 1 - py : py;
+      const t = oneD ? tile + ((sy >> 3) * (w >> 3) + (sx >> 3)) * step : tile + (sy >> 3) * 32 + (sx >> 3) * step;
+      let ci;
+      if (c256) ci = shot.objVram[(t * 32 + (sy & 7) * 8 + (sx & 7)) & 0x7fff];
+      else { const b = shot.objVram[(t * 32 + (sy & 7) * 4 + ((sx & 7) >> 1)) & 0x7fff]; ci = (sx & 1) ? b >> 4 : b & 15; }
+      if (!ci) continue;
+      const c = pal[c256 ? ci : bank + ci], o = (py * w + px) * 4;
+      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = alpha;
+    }
+    g.putImageData(img, 0, 0);
+    out.push({ prio, x: camX + x, y: camY + y, cv });
+  }
+  return out;
 }
 
 /* ===== App state ===== */
@@ -532,6 +583,10 @@ const S = {
   tool: "rect", layers: LAYER_BOTH, selection: new Uint8Array(SIDE * SIDE), selCount: 0,
   zoom: 2, panX: 0, panY: 0, undo: [], redo: [], drag: null, hover: null, selEntity: null,
   heights: null, pushTimer: 0, selectTimer: 0, followBusy: false, lastRev: -1,
+  /* Layers of the 3D view hidden by hand ("L:height", "spr", "link"), the
+   * layer pictures with them cut out, which cells of a map layer draw at all,
+   * and Link drawn live. */
+  hidden: new Set(), masked: null, cellPixels: null, player: null, playerSig: "", playerRev: -1, playerMovedAt: 0, playerBusy: false,
 };
 const $ = id => document.getElementById(id);
 const view = $("view"), ctx = view.getContext("2d");
@@ -595,7 +650,9 @@ async function connect() {
     const shared = await api("/edits?kinds=6");
     if (!S.rulesDirty && !S.entitiesDirty) S.edits.importText(shared, 6);
     if (S.status.inGame && !S.status.transition) await loadCurrentRoom();
+    if (!$("showSel").checked) api("/highlight?show=0", { method: "POST" }).catch(() => {});
     pollStatus();
+    if (!S.playerLoop) { S.playerLoop = true; playerTick(); }
   } catch (e) { S.connected = false; setChip("немає зв'язку", "bad"); toast("Не вдалося підключитися: " + e.message); }
 }
 async function pollStatus() {
@@ -770,6 +827,74 @@ function markCurrentRoomInTree() {
 /* ===== Heights: measured, then tile rules, then room cells (as the game) ===== */
 function recompute() {
   if (S.room) S.heights = computeHeights(S.room, $("showAuto").checked);
+  S.masked = null;
+  if (S.room) renderDepthLayers();
+}
+
+/* ===== 3D layers: every depth the map's cells stand at ===== */
+function layerDepth(L, h) { return 3 * (S.room.bg[L] & 3) - h; }
+function cellLayerHeight(L, i) { return L ? S.heights.top[i] : S.heights.bottom[i]; }
+function hiddenCell(L, i) { return S.hidden.has(`${L}:${cellLayerHeight(L, i)}`); }
+function saveHidden() { try { localStorage.setItem("tmc-hidden", JSON.stringify([...S.hidden])); } catch (e) {} }
+function measureCellPixels(r) {
+  S.cellPixels = [0, 1].map(L => {
+    const a = new Uint8Array(SIDE * SIDE); if (!r.bg[L]) return a;
+    const d = S.layerImg[L].getContext("2d").getImageData(0, 0, r.width, r.height).data;
+    for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) {
+      let any = 0;
+      for (let y = 0; y < 8 && !any; ++y) for (let x = 0; x < 8; ++x) if (d[((row * 8 + y) * r.width + col * 8 + x) * 4 + 3]) { any = 1; break; }
+      a[row * SIDE + col] = any;
+    }
+    return a;
+  });
+}
+function depthLayers() {
+  const r = S.room, map = new Map();
+  for (let L = 0; L < 2; ++L) {
+    if (!r.bg[L]) continue;
+    for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) {
+      const i = row * SIDE + col; if (S.cellPixels && !S.cellPixels[L][i]) continue;
+      const h = cellLayerHeight(L, i), key = `${L}:${h}`;
+      let e = map.get(key); if (!e) map.set(key, e = { key, L, h, depth: layerDepth(L, h), cells: [] });
+      e.cells.push(i);
+    }
+  }
+  return [...map.values()].sort((a, b) => a.depth - b.depth || b.L - a.L);
+}
+function renderDepthLayers() {
+  const box = $("depthList"); if (!box) return;
+  box.innerHTML = "";
+  const rows = depthLayers().map(e => ({ key: e.key, name: `${e.L ? "верхній" : "нижній"} · висота ${e.h > 0 ? "+" + e.h : e.h}`, info: `глибина ${e.depth} · ${e.cells.length}`, colour: heightColour(e.h), cells: e.cells }));
+  rows.push({ key: "spr", name: "спрайти кімнати", info: "", colour: null });
+  rows.push({ key: "link", name: "Лінк (живий)", info: S.player ? "" : "чекаю консоль", colour: null });
+  for (const row of rows) {
+    const it = document.createElement("div"); it.className = "depthItem" + (S.hidden.has(row.key) ? " off" : "");
+    const eye = document.createElement("span"); eye.className = "eye"; eye.textContent = S.hidden.has(row.key) ? "◌" : "👁";
+    eye.title = "Показати / сховати (Alt — лише цей)";
+    eye.onclick = ev => {
+      if (ev.altKey) { S.hidden = new Set(rows.map(x => x.key).filter(k => k !== row.key)); }
+      else if (S.hidden.has(row.key)) S.hidden.delete(row.key); else S.hidden.add(row.key);
+      saveHidden(); S.masked = null; renderDepthLayers(); draw();
+    };
+    const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = row.colour ? row.colour.replace(/[\d.]+\)$/, "1)") : "transparent";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = row.name;
+    if (row.cells) { name.title = "Виділити клітинки цього шару (Shift — додати)"; name.onclick = ev => applySel(row.cells, ev.shiftKey ? "add" : "replace"); }
+    const v = document.createElement("span"); v.className = "v"; v.textContent = row.info;
+    it.append(eye, sw, name, v); box.append(it);
+  }
+}
+/* The map layers with the hidden 3D layers cut out. */
+function visibleLayers() {
+  if (![...S.hidden].some(k => k.includes(":"))) return S.layerImg;
+  if (S.masked) return S.masked;
+  const r = S.room;
+  S.masked = [0, 1].map(L => {
+    const cv = document.createElement("canvas"); cv.width = r.width; cv.height = r.height;
+    const g = cv.getContext("2d"); g.drawImage(S.layerImg[L], 0, 0);
+    for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) if (hiddenCell(L, row * SIDE + col)) g.clearRect(col * 8, row * 8, 8, 8);
+    return cv;
+  });
+  return S.masked;
 }
 function computeHeights(r, autoOnly) {
   const bottom = new Int8Array(r.autoHeight), top = new Int8Array(r.autoTop);
@@ -815,7 +940,8 @@ function showRoom(room) {
   S.room = room;
   S.layerImg = [renderLayer(room, 0), renderLayer(room, 1)];
   S.spriteImg = renderSprites(room);
-  if (!sameRoom) { S.selection.fill(0); S.selCount = 0; S.selEntity = null; S.undo = []; S.redo = []; fitView(); }
+  measureCellPixels(room); S.masked = null;
+  if (!sameRoom) { S.selection.fill(0); S.selCount = 0; S.selEntity = null; S.undo = []; S.redo = []; S.player = null; S.playerSig = ""; fitView(); }
   $("empty").style.display = "none";
   recompute(); updateSelInfo(); renderEntities(); renderRules(); draw(); markCurrentRoomInTree();
   $("hud").innerHTML = `<span class="chip">${hex2(room.area)}:${hex2(room.room)} · ${AREA_NAMES[room.area] || ""}</span><span class="chip">${room.width}×${room.height} px · ${room.cols}×${room.rows} клітинок</span>`;
@@ -840,7 +966,7 @@ function draw() {
   ctx.setTransform(S.zoom, 0, 0, S.zoom, S.panX, S.panY);
   const [c0, c1] = rgb555(r.palette[0]);
   if ($("preview3d").checked) { drawAnaglyph(); }
-  else drawRoomPicture(ctx, r, S.layerImg, S.spriteImg, 0, 0);
+  else drawRoomPicture(ctx, r, visibleLayers(), S.spriteImg, 0, 0, S.player);
   /* Visible cells only. */
   const vx0 = Math.max(0, Math.floor(-S.panX / S.zoom / 8)), vy0 = Math.max(0, Math.floor(-S.panY / S.zoom / 8));
   const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
@@ -848,7 +974,10 @@ function draw() {
     for (let row = vy0; row <= vy1; ++row) {
       let runStart = vx0, runColour = null;
       for (let col = vx0; col <= vx1 + 1; ++col) {
-        const colour = col <= vx1 ? heightColour(cellHeight(row * SIDE + col)) : null;
+        const ci = row * SIDE + col;
+        const hid = col <= vx1 && (S.layers === LAYER_BOTTOM ? hiddenCell(0, ci) : S.layers === LAYER_TOP ? hiddenCell(1, ci)
+          : hiddenCell(0, ci) && (hiddenCell(1, ci) || !(S.cellPixels && S.cellPixels[1][ci])));
+        const colour = col <= vx1 && !hid ? heightColour(cellHeight(ci)) : null;
         if (colour === runColour) continue;
         if (runColour) { ctx.fillStyle = runColour; ctx.fillRect(runStart * 8, row * 8, (col - runStart) * 8, 8); }
         runStart = col; runColour = colour;
@@ -886,7 +1015,7 @@ function draw() {
   if (S.hover && inRoom(S.hover.col, S.hover.row)) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / S.zoom; ctx.strokeRect(S.hover.col * 8, S.hover.row * 8, 8, 8); }
 }
 function drawSelection(vx0, vy0, vx1, vy1) {
-  if (!S.selCount) return;
+  if (!S.selCount || !$("showSel").checked) return;
   ctx.fillStyle = "rgba(255,230,40,.18)";
   ctx.beginPath();
   for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
@@ -915,7 +1044,7 @@ function drawEntities() {
     const d = S.edits.entityDelta(r.area, r.room, en.kind, en.id, en.type, en.x >> 3, en.y >> 3);
     if (d || sel) { ctx.fillStyle = sel ? "#4fc3f7" : "#ffd54f"; ctx.fillText(d > 0 ? "+" + d : String(d), en.x + 9, y - 10); }
   }
-  if (S.linkPos) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.beginPath(); ctx.arc(S.linkPos[0], S.linkPos[1], 2.5, 0, Math.PI * 2); ctx.fill(); }
+  if (S.linkPos && !S.player) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.beginPath(); ctx.arc(S.linkPos[0], S.linkPos[1], 2.5, 0, Math.PI * 2); ctx.fill(); }
 }
 /* Red/cyan anaglyph from the corrected heights: every 8x8 cell of each
  * layer drawn moved by its depth, deeper cells first. */
@@ -938,7 +1067,7 @@ function drawAnaglyph() {
       order.sort((a, b) => a[0] - b[0]);
       for (const [hh, col, row] of order) {
         const shift = Math.round((base - start - hh) * sign * 2);
-        g.drawImage(S.layerImg[L], col * 8, row * 8, 8, 8, col * 8 + shift, row * 8, 8, 8);
+        g.drawImage(visibleLayers()[L], col * 8, row * 8, 8, 8, col * 8 + shift, row * 8, 8, 8);
       }
     }
   }
@@ -1027,6 +1156,9 @@ function updateSelInfo() {
     if (S.heights.rule[i] & S.layers) ++ruled;
   }
   el.innerHTML = `<b>${S.selCount}</b> клітинок · висота <b>${lo === hi ? lo : lo + "…" + hi}</b>` + (edited ? ` · з правками ${edited}` : "") + (ruled ? ` · за правилом ${ruled}` : "");
+  /* The field follows the selection's height (its lowest when mixed), so
+   * "+1 / −1" shows where it went; not while it is being typed in. */
+  if (document.activeElement !== $("setValue")) $("setValue").value = lo;
 }
 
 /* ===== Edits on the selection ===== */
@@ -1394,6 +1526,7 @@ window.addEventListener("keydown", ev => {
   else if (k === "escape") { S.selection.fill(0); S.selCount = 0; S.selEntity = null; updateSelInfo(); renderEntities(); scheduleSelectPush(); draw(); }
   else if (k === "1") setLayers(LAYER_BOTH); else if (k === "2") setLayers(LAYER_BOTTOM); else if (k === "3") setLayers(LAYER_TOP);
   else if (k === "v") toggle("liveOn");
+  else if (k === "s") toggle("showSel");
   else if (k === "m") toggleArea();
   else if (k === "g") toggle("showGrid"); else if (k === "c") toggle("showHeat"); else if (k === "p") toggle("preview3d");
   else if (k === "f1") { ev.preventDefault(); $("helpDlg").showModal(); }
@@ -1609,6 +1742,44 @@ async function screenDepth(bg, depth) {
   } catch (e) { toast("Не вдалося: " + e.message); }
 }
 
+/* ===== Link as the console draws him now (GET /player) ===== */
+function parsePlayer(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== "TMCP") throw new Error("не той формат");
+  const p = { dispcnt: dv.getUint16(4, true), scrollX: dv.getInt16(6, true), scrollY: dv.getInt16(8, true), entries: [], objVram: new Uint8Array(0x8000) };
+  const n = dv.getUint16(10, true), tiles = dv.getUint16(12, true); let off = 14;
+  for (let i = 0; i < n; ++i, off += 6) p.entries.push([dv.getUint16(off, true), dv.getUint16(off + 2, true), dv.getUint16(off + 4, true)]);
+  for (let i = 0; i < tiles; ++i) { const slot = dv.getUint16(off, true); p.objVram.set(u8.subarray(off + 2, off + 34), slot * 32); off += 34; }
+  p.palette = new Uint16Array(buf.slice(off, off + 0x200));
+  return p;
+}
+async function playerTick() {
+  if (!S.connected) { S.playerLoop = false; return; }
+  const st = S.status, r = S.room, now = performance.now();
+  const here = r && st && st.inGame && !st.transition && st.area === r.area && st.room === r.room;
+  /* While he moves, four times a second; at rest only when the console says
+   * his sprites changed. */
+  const due = here && !S.areaView && !document.hidden && $("showSprites").checked && !S.hidden.has("link") &&
+    (st.playerRev !== S.playerRev || now - S.playerMovedAt < 1500);
+  if (due && !S.playerBusy) {
+    S.playerBusy = true;
+    try {
+      const rev = st.playerRev, buf = await api("/player", { binary: true, timeout: 3000 });
+      S.playerRev = rev;
+      const bytes = new Uint8Array(buf); let sig = bytes.length + ":"; for (let i = 0; i < bytes.length; i += 7) sig += bytes[i].toString(36);
+      if (sig !== S.playerSig && S.room === r) {
+        S.playerSig = sig; S.playerMovedAt = now;
+        const p = parsePlayer(buf), first = !S.player;
+        S.player = oamEntryCanvases(r, p, [...p.palette].map(rgb555), p.entries);
+        if (first) renderDepthLayers();
+        draw();
+      }
+    } catch (e) {}
+    S.playerBusy = false;
+  }
+  setTimeout(playerTick, 250);
+}
+
 /* ===== The console's own picture (GET /frame) ===== */
 let liveBusy = false;
 async function liveTick() {
@@ -1778,6 +1949,8 @@ $("buildBtn").onclick = () => { $("buildInput").value = ""; $("buildInput").clic
 $("buildInput").addEventListener("change", () => { const f = $("buildInput").files[0]; if (f) uploadBuild(f); });
 $("roomSearch").addEventListener("input", renderRoomTree);
 for (const id of ["showBottom", "showTop", "showSprites", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", () => { syncToggles(); draw(); });
+$("showSel").addEventListener("change", () => { draw(); if (S.connected) api(`/highlight?show=${$("showSel").checked ? 1 : 0}`, { method: "POST" }).catch(() => {}); });
+$("depthAll").addEventListener("click", () => { S.hidden.clear(); saveHidden(); S.masked = null; renderDepthLayers(); draw(); });
 $("showAuto").addEventListener("change", () => { recompute(); updateSelInfo(); draw(); });
 $("areaBtn").onclick = () => toggleArea();
 $("crawlAreaBtn").onclick = () => {
@@ -1797,6 +1970,7 @@ setInterval(() => { if (S.selCount) draw(); }, 240); /* marching ants */
 
 (async function init() {
   setTool("rect"); setLayers(LAYER_BOTH); buildLegend(); syncToggles(); resize();
+  try { S.hidden = new Set(JSON.parse(localStorage.getItem("tmc-hidden") || "[]")); } catch (e) {}
   $("addr").value = localStorage.getItem("tmc-addr") || "localhost";
   /* Opened from the console itself (http://console:8333/): that is the address. */
   const servedByConsole = location.protocol === "http:" && location.port === String(PORT);
