@@ -139,6 +139,9 @@ static bool sNoclipWanted = true;
  * Wi-Fi before bringing it up again. */
 static volatile bool sAsleep;
 static unsigned sWakeWait;
+/* The network was up when the console went to sleep: restart it (outside
+ * the APT hook) before listening again. */
+static bool sNetResetPending;
 static void CopyOamWithoutLink(u16* out);
 extern int Port_Widescreen_GameplayViewWidth(void);
 extern int Port_Widescreen_GameplayViewHeight(void);
@@ -1874,6 +1877,14 @@ void PortStereoLink_Tick(void) {
         --sWakeWait;
         return;
     }
+    if (sNetResetPending) {
+        sNetResetPending = false;
+        if (sNetUp) {
+            PortStereoLink_NetDown();
+            sNetUp = false;
+        }
+        LinkLog("[link] after sleep: network restarted");
+    }
     if (sListen < 0) {
         /* Try again every few seconds: the Wi-Fi may come up later. */
         if (sFrame % 180 != 1 && sNetFailed) {
@@ -1962,13 +1973,23 @@ int PortStereoLink_UploadProgress(void) {
  * the APT hook. */
 void PortStereoLink_Sleep(bool asleep) {
     if (asleep) {
-        if (sListen >= 0 || sNetUp) {
-            LinkLog("[link] going to sleep: link down");
+        /* Only the sockets here, inside the APT hook: shutting the SOC
+         * service down at this point (3D-34..39) was followed by a console
+         * that never woke. The service is restarted after waking instead. */
+        LinkLog("[link] sleep: closing sockets (net %s)", sNetUp ? "up" : "down");
+        for (int i = 0; i < MAX_CLIENTS; ++i) {
+            CloseClient(&sClients[i]);
         }
+        if (sListen >= 0) {
+            close(sListen);
+            sListen = -1;
+        }
+        sNetResetPending = sNetUp;
         sAsleep = true;
-        LinkStop();
         sNetFailed = false;
+        LinkLog("[link] sleep: sockets closed");
     } else if (sAsleep) {
+        LinkLog("[link] woke up");
         sAsleep = false;
         sWakeWait = 60 * 3;
     }

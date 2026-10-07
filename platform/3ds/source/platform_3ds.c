@@ -95,9 +95,14 @@ static void OnAptEvent(APT_HookType hook, void* parameter) {
              * restore callbacks before that boundary coalesce into one resync. */
             Platform3DS_MarkFrameDiscontinuity(OLD3DS_FRAME_PACER_DISCONTINUITY_APT);
             PlatformGpu3DS_InvalidateBottomTarget();
+            /* Every lifecycle event in the log: a console that does not wake
+             * shows how far it got. */
+            Platform3DS_Debug(hook == APTHOOK_ONSLEEP ? "[apt] sleep\n" : hook == APTHOOK_ONWAKEUP ? "[apt] wakeup\n"
+                              : hook == APTHOOK_ONSUSPEND ? "[apt] suspend\n" : "[apt] restore\n");
             /* Sockets open across sleep left the console unable to wake. */
             if (hook == APTHOOK_ONSLEEP) PortStereoLink_Sleep(true);
             else if (hook == APTHOOK_ONWAKEUP) PortStereoLink_Sleep(false);
+            if (hook == APTHOOK_ONSLEEP) Platform3DS_Debug("[apt] sleep: hook done\n");
             break;
         default:
             break;
