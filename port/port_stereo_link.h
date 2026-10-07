@@ -28,7 +28,8 @@
  *   POST /select?area=&room=         frame cells on the top screen; body
  *                                    "row col0 col1" lines, empty to clear
  *   POST /save                       write stereo_edits.txt
- *   POST /file?name=x.3dsx           a new build into sdmc:/3ds/ (3DSX only)
+ *   POST /file?name=x.3dsx[&quit=0]  a new build into sdmc:/3ds/ (3DSX only); the
+ *                                    game then quits to the Homebrew Launcher
  *   POST /sweep                      tour the room with the camera (Link stays)
  *                                    so /room carries every sprite of it
  *   POST /remove?name=x.3dsx         delete an old build from sdmc:/3ds/
@@ -63,6 +64,8 @@ int PortStereoLink_UploadProgress(void);
 /* The build coming in (bytes so far and in all), and the name of one just
  * written while its note is up; any thread. */
 bool PortStereoLink_UploadInfo(unsigned* received, unsigned* total, const char** doneName);
+/* Seconds until the game quits after a build came in, or -1. */
+int PortStereoLink_QuitSeconds(void);
 
 /* Close the sockets and the network: on leaving the game. */
 void PortStereoLink_Shutdown(void);

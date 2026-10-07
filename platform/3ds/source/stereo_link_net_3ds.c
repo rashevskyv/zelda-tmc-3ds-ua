@@ -95,6 +95,12 @@ int PortStereoLink_Relaunch(const char* name) {
     return R_SUCCEEDED(rc) ? 200 : 500;
 }
 
+/* Linear memory left: GPU textures (the editor's colour layer among them)
+ * come from it, not from the heap /status reports as heapFree. */
+unsigned PortStereoLink_LinearFree(void) {
+    return (unsigned)linearSpaceFree();
+}
+
 void PortStereoLink_Quit(void) {
     Platform3DS_RequestQuit();
 }

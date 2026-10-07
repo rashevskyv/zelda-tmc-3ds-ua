@@ -3041,8 +3041,9 @@ void Port_SecondScreen_PaintInto(uint32_t* pixels, int width, int height, int st
             snprintf(line, sizeof(line), "%u,%u з %u,%u МБ", upReceived / 1048576u, (upReceived % 1048576u) * 10u / 1048576u,
                      upTotal / 1048576u, (upTotal % 1048576u) * 10u / 1048576u);
             UpdateBodyText(&s, line, 20, 138, SS_TEXT_INK, true);
-            /* A spinner: eight dots, one lit, turning with the frames. */
-            const int lit = (int)(tick / 4u) & 7;
+            /* A spinner: eight dots, one lit, turning with the clock -- the
+             * paused frames come unevenly while the card is written. */
+            const int lit = (int)(Platform3DS_SystemTick() / (268111856ull / 12ull)) & 7;
             for (int i = 0; i < 8; ++i) {
                 static const int dx[8] = { 0, 7, 10, 7, 0, -7, -10, -7 }, dy[8] = { -10, -7, 0, 7, 10, 7, 0, -7 };
                 const float cx = (float)s.w - 40 + (float)dx[i], cy = 150 + (float)dy[i];
@@ -3051,7 +3052,14 @@ void Port_SecondScreen_PaintInto(uint32_t* pixels, int width, int height, int st
         } else {
             UpdateBodyText(&s, "Нову збірку записано:", 20, 70, SS_TEXT_RED, true);
             UpdateBodyText(&s, upDone, 20, 90, SS_TEXT_INK, true);
-            UpdateBodyText(&s, "Перезапустіть гру з Homebrew Launcher", 20, 120, SS_TEXT_INK, true);
+            const int quitIn = PortStereoLink_QuitSeconds();
+            if (quitIn >= 0) {
+                snprintf(line, sizeof(line), "Гра закриється за %d с", quitIn);
+                UpdateBodyText(&s, line, 20, 120, SS_TEXT_INK, true);
+                UpdateBodyText(&s, "Запустіть нову з Homebrew Launcher", 20, 140, SS_TEXT_INK, true);
+            } else {
+                UpdateBodyText(&s, "Перезапустіть гру з Homebrew Launcher", 20, 120, SS_TEXT_INK, true);
+            }
         }
         UI_LOCK();
         sTapTargetCount = 0;

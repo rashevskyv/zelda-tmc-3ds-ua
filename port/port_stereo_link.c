@@ -109,6 +109,8 @@ typedef struct {
     bool uploadFailed;
     char uploadMagic[4];
     char uploadPath[96];
+    /* POST /file?...&quit=0 leaves the game running once the build is in. */
+    bool uploadKeep;
     /* Frames since the answer went out: the console's sockets drop what is
      * still unsent when closed at once, so the client closes first. */
     unsigned draining;
@@ -123,6 +125,12 @@ static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
+static unsigned sQuitAt;
+enum { QUIT_AFTER_UPLOAD_FRAMES = 60 * 3 };
+/* Time (CPU ticks) a paused frame may spend taking an upload, so the
+ * progress screen stays lively: the card write is the slow part. */
+extern unsigned long long Platform3DS_SystemTick(void);
+#define UPLOAD_TICKS_PER_FRAME (268111856ull / 1000ull * 20ull)
 /* The frame of the last request answered: the PC editor asks for /status
  * several times a second while its page is open. */
 static unsigned sLastRequestFrame;
@@ -677,6 +685,8 @@ static const RoomHeader* RoomHeaderOf(int area, int room) {
 
 /* What malloc can still hand out: the heap not yet taken from the system,
  * and the free pieces of what was (3DS: libctru's __ctru_heap_size). */
+extern unsigned PortStereoLink_LinearFree(void);
+
 static unsigned HeapLeft(void) {
 #ifdef TMC_3DS
     extern u32 __ctru_heap_size;
@@ -717,7 +727,7 @@ static void AnswerStatus(Client* client) {
          "\"tileset\":%u,\"transition\":%s,\"rev\":%lu,\"frame\":%u,\"selRev\":%u,\"editor\":%s,"
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
-         "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s]}",
+         "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -728,7 +738,7 @@ static void AnswerStatus(Client* client) {
          gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
          sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
          gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
-         HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs);
+         HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree());
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -1005,6 +1015,7 @@ static bool UploadStart(Client* client, const char* query, size_t contentLength)
         return false;
     }
     char temp[104];
+    client->uploadKeep = strstr(query, "quit=0") != NULL;
     snprintf(client->uploadPath, sizeof(client->uploadPath), "sdmc:/3ds/%s", name);
     snprintf(temp, sizeof(temp), "%s.part", client->uploadPath);
     client->upload = fopen(temp, "wb");
@@ -1051,6 +1062,13 @@ static void UploadFinish(Client* client) {
         const char* name = strrchr(client->uploadPath, '/');
         snprintf(sUploadedName, sizeof(sUploadedName), "%s", name ? name + 1 : client->uploadPath);
         sUploadedUntil = sFrame + 60 * 8;
+        /* The game quits by itself a little later -- back to the Homebrew
+         * Launcher, which then starts the new build when asked. A plain quit;
+         * it is only asking hb:ldr to relaunch that hung the console. */
+        if (!client->uploadKeep) {
+            sQuitIn = QUIT_AFTER_UPLOAD_FRAMES;
+            sQuitAt = sFrame + QUIT_AFTER_UPLOAD_FRAMES;
+        }
     }
     RespondText(client, renamed ? 200 : 400, renamed ? "ok" : "cannot rename");
 }
@@ -1361,7 +1379,9 @@ static void ServeClient(Client* client) {
         /* The game holds still while a build comes in (port_bios.c), so a
          * frame can take more. */
         size_t budget = UPLOAD_PER_TICK * 4;
-        while (client->uploadLeft > 0 && budget > 0) {
+        const unsigned long long started = Platform3DS_SystemTick();
+        while (client->uploadLeft > 0 && budget > 0 &&
+               Platform3DS_SystemTick() - started < UPLOAD_TICKS_PER_FRAME) {
             const ssize_t n = recv(client->socket, chunk, sizeof(chunk) < budget ? sizeof(chunk) : budget, 0);
             if (n > 0) {
                 UploadWrite(client, chunk, (size_t)n);
@@ -1631,6 +1651,10 @@ void PortStereoLink_Tick(void) {
         }
         ServeClient(client);
     }
+}
+
+int PortStereoLink_QuitSeconds(void) {
+    return sQuitIn ? (int)((sQuitAt - sFrame + 59u) / 60u) : -1;
 }
 
 bool PortStereoLink_UploadInfo(unsigned* received, unsigned* total, const char** doneName) {

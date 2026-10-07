@@ -1073,23 +1073,34 @@ static void DrawUpdateTop(void) {
 
 /* The editor's colour layer: 4x4 texels a cell, so an edited cell can carry a
  * bar along its top. Allocated on first use, in linear memory. */
-enum { EDITOR_CELL_TEXELS = 4, EDITOR_CELLS_SIDE = PORT_STEREO_EDITOR_CELLS * EDITOR_CELL_TEXELS };
+/* 256x128 RGBA8, 128 KB of linear memory: a 256x256 one (256 KB) could not
+ * be had on the console, and with it went the colours and the selection. */
+enum {
+    EDITOR_CELL_TEXELS = 4,
+    EDITOR_CELLS_W = PORT_STEREO_EDITOR_CELLS * EDITOR_CELL_TEXELS,
+    EDITOR_CELLS_H = PORT_STEREO_EDITOR_CELL_ROWS * EDITOR_CELL_TEXELS,
+};
 static C3D_Tex sEditorCells;
 static bool sEditorCellsReady;
 
 /* Texel (x, y) of a square RGBA8 texture, y down, in the GPU's tiled order:
  * 8x8 tiles from the bottom row up, Morton order inside a tile. */
-static size_t TiledTexel(unsigned x, unsigned y, unsigned side) {
-    y = side - 1u - y;
+static size_t TiledTexel(unsigned x, unsigned y, unsigned width, unsigned height) {
+    y = height - 1u - y;
     const unsigned m = (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) |
                        ((y & 4u) << 3);
-    return ((size_t)(y >> 3) * (side >> 3) + (x >> 3)) * 64u + m;
+    return ((size_t)(y >> 3) * (width >> 3) + (x >> 3)) * 64u + m;
 }
 
 static void DrawEditorCells(const PortStereoEditorView* view) {
     if (!view->cells) return;
     if (!sEditorCellsReady) {
-        if (!C3D_TexInit(&sEditorCells, EDITOR_CELLS_SIDE, EDITOR_CELLS_SIDE, GPU_RGBA8)) return;
+        if (!C3D_TexInit(&sEditorCells, EDITOR_CELLS_W, EDITOR_CELLS_H, GPU_RGBA8)) {
+            static bool told;
+            if (!told) Platform3DS_Debug("[tmc3ds] stereo editor: no memory for the cell colours\n");
+            told = true;
+            return;
+        }
         C3D_TexSetFilter(&sEditorCells, GPU_NEAREST, GPU_NEAREST);
         C3D_TexSetWrap(&sEditorCells, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
         sEditorCellsReady = true;
@@ -1116,18 +1127,19 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
                 if (edge) abgr = C2D_Color32(255, 230, 40, 255);
             }
             /* C2D colours are ABGR in a word; an RGBA8 texel is RGBA from the top byte. */
-            texels[TiledTexel(x, y, EDITOR_CELLS_SIDE)] = __builtin_bswap32(abgr);
+            texels[TiledTexel(x, y, EDITOR_CELLS_W, EDITOR_CELLS_H)] = __builtin_bswap32(abgr);
         }
     }
     C3D_TexFlush(&sEditorCells);
     /* Over exactly the picture: 8 GBA pixels a cell, EDITOR_CELL_TEXELS texels. */
-    const float perPixel = (float)EDITOR_CELL_TEXELS / 8.0f / EDITOR_CELLS_SIDE;
+    const float perPixel = (float)EDITOR_CELL_TEXELS / 8.0f / EDITOR_CELLS_W;
+    const float perPixelV = (float)EDITOR_CELL_TEXELS / 8.0f / EDITOR_CELLS_H;
     const Tex3DS_SubTexture sub = {
         .width = (u16)view->srcW, .height = (u16)view->srcH,
         .left = (view->srcX - view->cellsX) * perPixel,
-        .top = 1.0f - (view->srcY - view->cellsY) * perPixel,
+        .top = 1.0f - (view->srcY - view->cellsY) * perPixelV,
         .right = (view->srcX + view->srcW - view->cellsX) * perPixel,
-        .bottom = 1.0f - (view->srcY + view->srcH - view->cellsY) * perPixel,
+        .bottom = 1.0f - (view->srcY + view->srcH - view->cellsY) * perPixelV,
     };
     const C2D_Image image = { .tex = &sEditorCells, .subtex = &sub };
     const C2D_DrawParams params = {

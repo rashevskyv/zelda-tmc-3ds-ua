@@ -766,6 +766,10 @@ void VBlankIntrWait(void) {
                  * (which otherwise runs from VBlankIntr) goes on taking it. */
                 if (PortStereoLink_UploadProgress() >= 0) {
                     PortStereoLink_Tick();
+                    /* Repaint every paused frame, not on the idle cadence,
+                     * so the spinner keeps turning. */
+                    extern uint32_t Port_SecondScreen_3DS_RequestRefresh(void);
+                    Port_SecondScreen_3DS_RequestRefresh();
                 }
             }
             Port_Audio_3DSSetPaused(false);

@@ -679,7 +679,7 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->cellsX = (float)(roomX + col0 * 8);
     view->cellsY = (float)(roomY + row0 * 8);
     view->cellCols = Min(PORT_STEREO_EDITOR_CELLS, col1 - col0 + 1);
-    view->cellRows = Min(PORT_STEREO_EDITOR_CELLS, row1 - row0 + 1);
+    view->cellRows = Min(PORT_STEREO_EDITOR_CELL_ROWS, row1 - row0 + 1);
     for (int r = 0; r < view->cellRows; ++r) {
         for (int c = 0; c < view->cellCols; ++c) {
             const int col = col0 + c, row = row0 + r, at = r * PORT_STEREO_EDITOR_CELLS + c;

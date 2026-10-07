@@ -43,6 +43,8 @@ enum {
     /* Cells a side of the colour layer: a 266-pixel WIDE frame shows up to
      * 35 columns, a 400x240 one 51x31. */
     PORT_STEREO_EDITOR_CELLS = 64,
+    /* ...and rows: a 400x240 frame shows 31. */
+    PORT_STEREO_EDITOR_CELL_ROWS = 32,
     /* The "?" button in the corner of the status line, the room list's
      * button left of it. */
     PORT_STEREO_EDITOR_HELP_X0 = 284,
