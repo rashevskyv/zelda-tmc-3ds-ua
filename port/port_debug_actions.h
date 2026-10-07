@@ -40,6 +40,8 @@ int Port_DebugQuery_PlayerXY(unsigned short* x, unsigned short* y);
 void Port_DebugAction_SetNoclip(int on);
 int  Port_DebugQuery_Noclip(void);
 int  Port_Debug_NoclipEnabled(void);
+/* Through walls for as long as a stereo editor is open (port_stereo_link.c). */
+void Port_DebugAction_SetAutoNoclip(int on);
 
 /* Minish transformation debug toggles. */
 void Port_DebugAction_ToggleMinish(void);

@@ -2221,10 +2221,27 @@ static void PaintStereoEditor(const SSurf* s) {
             const int y = PORT_STEREO_EDITOR_LIST_Y0 + i * PORT_STEREO_EDITOR_LIST_ROW_H;
             if (i == cursor) {
                 /* ABGR: a pale blue bar under the highlighted line. */
-                FillRoundRect(s, 2, (float)y, (float)s->w - 2, (float)(y + PORT_STEREO_EDITOR_LIST_ROW_H), 4,
-                              0xfff0c896u);
+                FillRoundRect(s, 2, (float)y, (float)PORT_STEREO_EDITOR_SCROLL_X0 - 3,
+                              (float)(y + PORT_STEREO_EDITOR_LIST_ROW_H), 4, 0xfff0c896u);
             }
             UpdateBodyText(s, list[i], 8, y, SS_TEXT_INK, true);
+        }
+        /* The scroll bar: where the lines shown sit among all of them. */
+        int top = 0, count = 0;
+        PortStereoEditor_ListScroll(&top, &count);
+        const float y0 = (float)PORT_STEREO_EDITOR_LIST_Y0;
+        const float span = (float)(PORT_STEREO_EDITOR_LIST_ROWS * PORT_STEREO_EDITOR_LIST_ROW_H);
+        const float x0 = (float)PORT_STEREO_EDITOR_SCROLL_X0 + 3, x1 = (float)s->w - 4;
+        FillRoundRect(s, x0, y0, x1, y0 + span, 4, 0xffb4c8d2u);
+        if (count > 0) {
+            const float shown = count < PORT_STEREO_EDITOR_LIST_ROWS ? (float)count : PORT_STEREO_EDITOR_LIST_ROWS;
+            float t0 = y0 + span * (float)top / (float)count;
+            float t1 = y0 + span * ((float)top + shown) / (float)count;
+            if (t1 - t0 < 12.0f) {
+                t1 = t0 + 12.0f > y0 + span ? y0 + span : t0 + 12.0f;
+                t0 = t1 - 12.0f;
+            }
+            FillRoundRect(s, x0, t0, x1, t1, 4, 0xff804a30u);
         }
     } else if (PortStereoEditor_HelpOpen()) {
         int count;

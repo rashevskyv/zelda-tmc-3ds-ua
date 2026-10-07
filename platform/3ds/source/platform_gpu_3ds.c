@@ -892,6 +892,15 @@ void PlatformGpu3DS_BeginTop(const uint32_t* pixels, unsigned width, unsigned he
     sStereoDepth = PlatformGpu3DS_StereoDepth();
     DrawTopImage(pixels, width, height, validSourceWidth, validSourceHeight,
                  mode, cropX, cropY);
+    /* The 3D editor's picture when the CPU draws the frame: the upload holds
+     * it from texel (0, 0), at its own size (400x240 outdoors and 200x120
+     * indoors in the New 3DS full view). */
+    sEditorTexture = &sTopTexture;
+    sEditorTexelX = 0.0f;
+    sEditorTexelY = 0.0f;
+    sEditorFrame = sStats.frames;
+    PortStereoEditor_SetFrame((int)(validSourceWidth ? validSourceWidth : width),
+                              (int)(validSourceHeight ? validSourceHeight : height));
     if (sStereoDepth > 0.0f) {
         /* No layers in a CPU-rendered frame: both eyes see the same image. */
         sTopDraw = sTopTargetRight;
@@ -955,9 +964,12 @@ void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, 
     if (!sFrameActive || !left) return;
     DrawTopTexture(left, width, false);
     sEditorTexture = left;
-    sEditorTexelX = sTopSubtexture.left * left->width;
-    sEditorTexelY = (1.0f - sTopSubtexture.top) * left->height;
+    /* The editor shows the whole frame, not the part the top screen crops
+     * to: its cells and the stylus count from the frame's left edge. */
+    sEditorTexelX = 0.0f;
+    sEditorTexelY = 0.0f;
     sEditorFrame = sStats.frames;
+    PortStereoEditor_SetFrame(width < 240u ? 240 : width > 266u ? 266 : (int)width, 160);
     if (sEyeCopyWanted) {
         const size_t texels = (size_t)left->width * left->height;
         for (int eye = 0; eye < 2; ++eye) {
@@ -967,8 +979,9 @@ void PlatformGpu3DS_DrawTopTextureStereo(void* leftPointer, void* rightPointer, 
         if (sEyeCopy[0] && sEyeCopy[1] && PlatformGpu3DS_QueueRgba5551Readback(left, sEyeCopy[0])) {
             sEyeCopyRight = right && right->width == left->width && right->height == left->height &&
                             PlatformGpu3DS_QueueRgba5551Readback(right, sEyeCopy[1]);
-            sEyeCopyX = sEditorTexelX;
-            sEyeCopyY = sEditorTexelY;
+            /* The PC sees what the top screen shows. */
+            sEyeCopyX = sTopSubtexture.left * left->width;
+            sEyeCopyY = (1.0f - sTopSubtexture.top) * left->height;
             sEyeCopyStride = left->width;
             sEyeCopyRows = left->height;
             sEyeCopyFrame = sStats.frames;
@@ -1082,8 +1095,11 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
         sEditorCellsReady = true;
     }
     u32* texels = sEditorCells.data;
-    for (unsigned y = 0; y < EDITOR_CELLS_SIDE; ++y) {
-        for (unsigned x = 0; x < EDITOR_CELLS_SIDE; ++x) {
+    /* Only the cells in use: the texture is sampled no further. */
+    const unsigned usedW = (unsigned)view->cellCols * EDITOR_CELL_TEXELS;
+    const unsigned usedH = (unsigned)view->cellRows * EDITOR_CELL_TEXELS;
+    for (unsigned y = 0; y < usedH; ++y) {
+        for (unsigned x = 0; x < usedW; ++x) {
             const unsigned at = (y / EDITOR_CELL_TEXELS) * PORT_STEREO_EDITOR_CELLS + x / EDITOR_CELL_TEXELS;
             u32 abgr = view->cellColour[at];
             if (view->cellEdited[at] && y % EDITOR_CELL_TEXELS == 1) abgr = C2D_Color32(255, 255, 255, 230);
@@ -1094,9 +1110,9 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
                 const unsigned fx = x % EDITOR_CELL_TEXELS, fy = y % EDITOR_CELL_TEXELS;
                 const unsigned n = PORT_STEREO_EDITOR_CELLS, last = EDITOR_CELL_TEXELS - 1;
                 const bool edge = (fx == 0 && (cx == 0 || !view->cellSelected[at - 1])) ||
-                                  (fx == last && (cx + 1 == n || !view->cellSelected[at + 1])) ||
+                                  (fx == last && (cx + 1 == (unsigned)view->cellCols || !view->cellSelected[at + 1])) ||
                                   (fy == 0 && (cy == 0 || !view->cellSelected[at - n])) ||
-                                  (fy == last && (cy + 1 == n || !view->cellSelected[at + n]));
+                                  (fy == last && (cy + 1 == (unsigned)view->cellRows || !view->cellSelected[at + n]));
                 if (edge) abgr = C2D_Color32(255, 230, 40, 255);
             }
             /* C2D colours are ABGR in a word; an RGBA8 texel is RGBA from the top byte. */

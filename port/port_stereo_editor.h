@@ -40,8 +40,9 @@ enum {
     PORT_STEREO_EDITOR_VIEW_H = 200,
     /* citro2d draws at most 320 objects a frame, both screens together. */
     PORT_STEREO_EDITOR_MAX_RECTS = 280,
-    /* Cells a side of the colour layer: the view never shows more than 31x21. */
-    PORT_STEREO_EDITOR_CELLS = 32,
+    /* Cells a side of the colour layer: a 266-pixel WIDE frame shows up to
+     * 35 columns, a 400x240 one 51x31. */
+    PORT_STEREO_EDITOR_CELLS = 64,
     /* The "?" button in the corner of the status line, the room list's
      * button left of it. */
     PORT_STEREO_EDITOR_HELP_X0 = 284,
@@ -57,7 +58,7 @@ typedef struct PortStereoEditorRect {
 typedef struct PortStereoEditorView {
     /* The help is up: the panel paints it where the picture goes. */
     bool hidden;
-    /* The game picture: a GBA-pixel rectangle of the 240x160 frame and where
+    /* The game picture: a GBA-pixel rectangle of the frame and where
      * on the bottom screen it goes. */
     bool image;
     float srcX, srcY, srcW, srcH;
@@ -67,6 +68,7 @@ typedef struct PortStereoEditorView {
      * picture, under the rectangles. */
     bool cells;
     float cellsX, cellsY;
+    int cellCols, cellRows; /* how many of them are in use */
     uint32_t cellColour[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     bool cellEdited[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     bool cellSelected[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
@@ -75,6 +77,9 @@ typedef struct PortStereoEditorView {
 } PortStereoEditorView;
 
 void PortStereoEditor_Open(void);
+/* The size of the game's frame the renderer draws (240x160, wider in WIDE);
+ * its texture's texel (0, 0) is the frame's top-left. Main thread. */
+void PortStereoEditor_SetFrame(int width, int height);
 bool PortStereoEditor_IsOpen(void);
 
 /* One frame of input while open: buttons newly pressed and held, the stylus
@@ -90,11 +95,15 @@ void PortStereoEditor_SelectRun(int area, int room, int row, int col0, int col1)
 unsigned PortStereoEditor_SelectionRevision(void);
 char* PortStereoEditor_SelectionText(size_t* length);
 
-/* The room list (the "≡" button): up to PORT_STEREO_EDITOR_LIST_ROWS lines
+/* The room list (the "К" button, which also closes it): up to PORT_STEREO_EDITOR_LIST_ROWS lines
  * to show in the picture's place, the highlighted one, and a title; 0 when
  * the list is closed. Any thread. */
 enum { PORT_STEREO_EDITOR_LIST_ROWS = 10, PORT_STEREO_EDITOR_LIST_Y0 = 22, PORT_STEREO_EDITOR_LIST_ROW_H = 17 };
 int PortStereoEditor_ListLines(char (*lines)[48], int* cursor, char* title, size_t titleSize);
+/* The list's scroll bar at the right edge, from LIST_Y0 down LIST_ROWS rows:
+ * the first line shown and how many there are. Any thread. */
+enum { PORT_STEREO_EDITOR_SCROLL_X0 = 302 };
+void PortStereoEditor_ListScroll(int* top, int* count);
 
 /* What to draw over the bottom screen this frame. Main thread. */
 void PortStereoEditor_BuildView(PortStereoEditorView* view);

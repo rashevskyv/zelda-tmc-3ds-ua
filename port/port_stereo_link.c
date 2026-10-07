@@ -123,6 +123,11 @@ static int sListen = -1;
 static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
+/* The frame of the last request answered: the PC editor asks for /status
+ * several times a second while its page is open. */
+static unsigned sLastRequestFrame;
+static bool sRequestSeen;
+enum { PC_EDITOR_GONE_FRAMES = 60 * 3 };
 /* The build just written, shown for a while on the bottom screen. */
 static char sUploadedName[64];
 static unsigned sUploadedUntil;
@@ -135,6 +140,7 @@ static SaveFile* sTestBackup;
 extern void Port_DebugAction_GiveAllItems(void);
 extern void Port_DebugAction_SetNoclip(int on);
 extern int Port_DebugQuery_Noclip(void);
+extern void Port_DebugAction_SetAutoNoclip(int on);
 extern void UpdatePlayerSkills(void);
 extern void LoadItemGfx(void);
 extern void EraseHearts(void);
@@ -228,7 +234,9 @@ void PortStereoLink_Label(char* out, size_t size) {
         const uint32_t a = sAddress;
         const int n = snprintf(out, size, "%u.%u.%u.%u", (unsigned)(a & 0xff), (unsigned)((a >> 8) & 0xff),
                                (unsigned)((a >> 16) & 0xff), (unsigned)(a >> 24));
-        if (sPort != PORT_STEREO_LINK_PORT && n > 0 && (size_t)n < size) {
+        /* The whole address, port too: typed as it is into a browser it
+         * opens the editor page. */
+        if (n > 0 && (size_t)n < size) {
             snprintf(out + n, size - (size_t)n, ":%d", sPort);
         }
     }
@@ -533,15 +541,26 @@ static void Put(Buffer* b, const void* data, size_t length) {
 }
 
 static void PutF(Buffer* b, const char* format, ...) __attribute__((format(printf, 2, 3)));
+/* Any length: /status outgrew a fixed 512 and went out cut, as JSON no
+ * browser would parse. */
 static void PutF(Buffer* b, const char* format, ...) {
     char text[512];
-    va_list args;
+    va_list args, again;
     va_start(args, format);
+    va_copy(again, args);
     const int n = vsnprintf(text, sizeof(text), format, args);
     va_end(args);
-    if (n > 0) {
-        Put(b, text, (size_t)(n < (int)sizeof(text) ? n : (int)sizeof(text) - 1));
+    if (n > 0 && n < (int)sizeof(text)) {
+        Put(b, text, (size_t)n);
+    } else if (n > 0) {
+        char* big = malloc((size_t)n + 1);
+        if (big != NULL) {
+            vsnprintf(big, (size_t)n + 1, format, again);
+            Put(b, big, (size_t)n);
+            free(big);
+        }
     }
+    va_end(again);
 }
 
 static void PutU16(Buffer* b, unsigned value) {
@@ -1420,6 +1439,8 @@ static void ServeClient(Client* client) {
         if (client->request == NULL || !RequestComplete(client)) {
             return;
         }
+        sLastRequestFrame = sFrame;
+        sRequestSeen = true;
         if (!client->frameWait) {
             Answer(client);
         }
@@ -1544,6 +1565,9 @@ void PortStereoLink_Tick(void) {
         }
     }
     PendingGotoTick();
+    /* Link walks through walls while an editor is open, here or on the PC. */
+    const bool pcEditor = sEnabled && sRequestSeen && sFrame - sLastRequestFrame < PC_EDITOR_GONE_FRAMES;
+    Port_DebugAction_SetAutoNoclip(PortStereoEditor_IsOpen() || pcEditor);
     if (sQuitIn != 0 && --sQuitIn == 0) {
         LinkLog("[link] quitting for the relaunch");
         PortStereoLink_Quit();

@@ -563,8 +563,20 @@ int Port_DebugQuery_Noclip(void) {
     return sNoclip ? 1 : 0;
 }
 
+/* Set by the stereo editors while they are open: Link walks anywhere, so he
+ * can be put where a spot needs looking at, even out of a wall. Apart from
+ * the toggle above, which it neither shows nor changes. */
+static bool sAutoNoclip = false;
+
+void Port_DebugAction_SetAutoNoclip(int on) {
+    sAutoNoclip = on != 0;
+}
+
 int Port_Debug_NoclipEnabled(void) {
     extern bool Port_Config_GetConsoleParity(void);
+    if (sAutoNoclip) {
+        return 1;
+    }
     return (sNoclip && !Port_Config_GetConsoleParity()) ? 1 : 0;
 }
 

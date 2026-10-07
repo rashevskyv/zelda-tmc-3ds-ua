@@ -22,8 +22,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The whole 240x160 frame fits the 320x200 view at 1.25. */
-#define BASE_SCALE 1.25f
+/* The game's frame as the renderer last drew it: 240x160, or wider (266 in
+ * WIDE) -- the view, the cells and the stylus all count from its left edge,
+ * which is where gRoomControls.scroll_x is. */
+static int sFrameW = 240, sFrameH = 160;
 enum { MAX_ZOOM = 4, DRAG_SLOP = 3, LINE_SIZE = 160, DOUBLE_TAP_FRAMES = 30 };
 enum { SEL_NONE, SEL_CELLS, SEL_ENTITY };
 enum { SIDE = PORT_STEREO_EDIT_SIDE };
@@ -63,7 +65,7 @@ static int sListItems[MAX_LIST];
 static int sListCount, sListCursor, sListTop, sListArea;
 static char sListLines[2][PORT_STEREO_EDITOR_LIST_ROWS][48];
 static char sListTitle[2][48];
-static volatile int sListShown[2], sListCursorShown[2];
+static volatile int sListShown[2], sListCursorShown[2], sListTopShown[2], sListCountShown[2];
 static volatile int sListBuffer;
 
 /* Names as the decompilation calls the areas. */
@@ -96,8 +98,11 @@ static void OpenAreas(void);
 static void PublishList(void);
 static bool ListInput(uint32_t down, uint32_t held, bool touching, int touchX, int touchY);
 
+/* Zoom 1 fits the whole frame into the 320x200 view. */
 static float Scale(void) {
-    return BASE_SCALE * (float)sZoom;
+    const float fitW = (float)PORT_STEREO_EDITOR_VIEW_W / (float)sFrameW;
+    const float fitH = (float)PORT_STEREO_EDITOR_VIEW_H / (float)sFrameH;
+    return (fitW < fitH ? fitW : fitH) * (float)sZoom;
 }
 
 static float ClampF(float value, float lo, float hi) {
@@ -114,8 +119,18 @@ static int Max(int a, int b) {
 
 static void ClampPan(void) {
     const float w = PORT_STEREO_EDITOR_VIEW_W / Scale(), h = PORT_STEREO_EDITOR_VIEW_H / Scale();
-    sPanX = w >= 240.0f ? (240.0f - w) / 2.0f : ClampF(sPanX, 0.0f, 240.0f - w);
-    sPanY = h >= 160.0f ? (160.0f - h) / 2.0f : ClampF(sPanY, 0.0f, 160.0f - h);
+    const float fw = (float)sFrameW, fh = (float)sFrameH;
+    sPanX = w >= fw ? (fw - w) / 2.0f : ClampF(sPanX, 0.0f, fw - w);
+    sPanY = h >= fh ? (fh - h) / 2.0f : ClampF(sPanY, 0.0f, fh - h);
+}
+
+void PortStereoEditor_SetFrame(int width, int height) {
+    if (width < 8 || height < 8 || (width == sFrameW && height == sFrameH)) {
+        return;
+    }
+    sFrameW = width;
+    sFrameH = height;
+    ClampPan();
 }
 
 static bool InGame(void) {
@@ -639,8 +654,9 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->hidden = sHelp || sList != LIST_CLOSED;
     const float s = Scale();
     const float x0 = sPanX > 0.0f ? sPanX : 0.0f, y0 = sPanY > 0.0f ? sPanY : 0.0f;
-    const float x1 = sPanX + PORT_STEREO_EDITOR_VIEW_W / s < 240.0f ? sPanX + PORT_STEREO_EDITOR_VIEW_W / s : 240.0f;
-    const float y1 = sPanY + PORT_STEREO_EDITOR_VIEW_H / s < 160.0f ? sPanY + PORT_STEREO_EDITOR_VIEW_H / s : 160.0f;
+    const float fw = (float)sFrameW, fh = (float)sFrameH;
+    const float x1 = sPanX + PORT_STEREO_EDITOR_VIEW_W / s < fw ? sPanX + PORT_STEREO_EDITOR_VIEW_W / s : fw;
+    const float y1 = sPanY + PORT_STEREO_EDITOR_VIEW_H / s < fh ? sPanY + PORT_STEREO_EDITOR_VIEW_H / s : fh;
     view->image = true;
     view->srcX = x0;
     view->srcY = y0;
@@ -662,8 +678,10 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->cells = true;
     view->cellsX = (float)(roomX + col0 * 8);
     view->cellsY = (float)(roomY + row0 * 8);
-    for (int r = 0; r < PORT_STEREO_EDITOR_CELLS; ++r) {
-        for (int c = 0; c < PORT_STEREO_EDITOR_CELLS; ++c) {
+    view->cellCols = Min(PORT_STEREO_EDITOR_CELLS, col1 - col0 + 1);
+    view->cellRows = Min(PORT_STEREO_EDITOR_CELLS, row1 - row0 + 1);
+    for (int r = 0; r < view->cellRows; ++r) {
+        for (int c = 0; c < view->cellCols; ++c) {
             const int col = col0 + c, row = row0 + r, at = r * PORT_STEREO_EDITOR_CELLS + c;
             uint32_t colour = 0;
             bool edited = false, selected = false;
@@ -817,6 +835,8 @@ static void PublishList(void) {
     }
     sListShown[next] = sList == LIST_CLOSED ? 0 : shown;
     sListCursorShown[next] = sListCursor - sListTop;
+    sListTopShown[next] = sListTop;
+    sListCountShown[next] = sListCount;
     sListBuffer = next;
 }
 
@@ -879,11 +899,40 @@ static void ListMove(int delta) {
     PublishList();
 }
 
+/* Scrolls so that the scroll bar's thumb is centred at bottom-screen row y,
+ * keeping the highlighted line among those shown. */
+static void ListScrollTo(int y) {
+    const int rows = PORT_STEREO_EDITOR_LIST_ROWS;
+    const int span = rows * PORT_STEREO_EDITOR_LIST_ROW_H;
+    if (sListCount <= rows) {
+        return;
+    }
+    const int at = (y - PORT_STEREO_EDITOR_LIST_Y0) * sListCount / span;
+    sListTop = Max(0, Min(sListCount - rows, at - rows / 2));
+    sListCursor = Max(sListTop, Min(sListTop + rows - 1, sListCursor));
+    PublishList();
+}
+
+static void ListClose(void) {
+    sList = LIST_CLOSED;
+    PublishList();
+}
+
 /* Input while the list is up; true when it took the frame. */
 static bool ListInput(uint32_t down, uint32_t held, bool touching, int touchX, int touchY) {
     static unsigned repeat;
+    static bool wasTouching, dragging;
     if (sList == LIST_CLOSED) {
+        wasTouching = touching;
+        dragging = false;
         return false;
+    }
+    /* The "К" button that opened the list closes it again. */
+    if (touching && !wasTouching && OnRoomsButton(touchX, touchY)) {
+        wasTouching = true;
+        dragging = false;
+        ListClose();
+        return true;
     }
     if (down & PORT_STEREO_EDITOR_B) {
         if (sList == LIST_ROOMS) {
@@ -910,8 +959,17 @@ static bool ListInput(uint32_t down, uint32_t held, bool touching, int touchX, i
     if (down & PORT_STEREO_EDITOR_A) {
         ListChoose(sListCursor);
     }
-    static bool wasTouching;
-    if (touching && !wasTouching && touchY < PORT_STEREO_EDITOR_VIEW_H) {
+    if (!touching) {
+        dragging = false;
+    } else if (dragging) {
+        ListScrollTo(touchY);
+    }
+    if (touching && !wasTouching && touchX >= PORT_STEREO_EDITOR_SCROLL_X0 &&
+        touchY >= PORT_STEREO_EDITOR_LIST_Y0 && touchY < PORT_STEREO_EDITOR_VIEW_H) {
+        /* The scroll bar: drag it. */
+        dragging = true;
+        ListScrollTo(touchY);
+    } else if (touching && !wasTouching && touchY < PORT_STEREO_EDITOR_VIEW_H) {
         const int row = (touchY - PORT_STEREO_EDITOR_LIST_Y0) / PORT_STEREO_EDITOR_LIST_ROW_H;
         if (touchY < PORT_STEREO_EDITOR_LIST_Y0) {
             /* The title: back. */
@@ -938,4 +996,10 @@ int PortStereoEditor_ListLines(char (*lines)[48], int* cursor, char* title, size
     *cursor = sListCursorShown[current];
     snprintf(title, titleSize, "%s", sListTitle[current]);
     return shown;
+}
+
+void PortStereoEditor_ListScroll(int* top, int* count) {
+    const int current = sListBuffer;
+    *top = sListTopShown[current];
+    *count = sListCountShown[current];
 }
