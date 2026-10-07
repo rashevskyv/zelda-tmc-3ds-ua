@@ -37,7 +37,9 @@
  *   POST /sweep                      tour the room with the camera (Link stays)
  *                                    so /room carries every sprite of it
  *   POST /remove?name=x.3dsx         delete an old build from sdmc:/3ds/
- *   POST /test?on=0|1&noclip=0|1     test mode: every item, full hearts, no
+ *   POST /test?on=0|1&noclip=0|1     noclip: through walls while an editor is
+ *                                    open (on by default, any mode); on: test
+ *                                    mode: every item, full hearts, no
  *                                    saves written; ends (and restores the
  *                                    save) when switched off or the link goes
  *   POST /goto before a save is loaded starts the game from the last save

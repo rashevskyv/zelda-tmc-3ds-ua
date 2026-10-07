@@ -269,7 +269,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <div class="section" data-panel="test">
       <h3>Тестування</h3>
       <div class="row"><label title="Усі предмети, уміння, 20 сердець, ключі; серця весь час повні. Поки увімкнено, гра НЕ записує збереження, а після вимкнення все повертається як було"><input type="checkbox" id="testMode"> тестовий режим</label>
-        <label title="Лінк проходить крізь стіни (лише в тестовому режимі)"><input type="checkbox" id="noclip"> крізь стіни</label></div>
+        <label title="Лінк ходить крізь стіни, поки відкритий цей редактор або редактор 3D на консолі. Консоль пам'ятає це до виходу з гри, у будь-якій кімнаті"><input type="checkbox" id="noclip" checked> крізь стіни</label></div>
       <div class="small muted">Лише поки консоль з'єднана з редактором. Ваш сейв не змінюється.</div>
     </div>
     <div class="section" data-panel="view">
@@ -2083,7 +2083,7 @@ async function setTest(params) {
   try { const st = JSON.parse(await api(`/test?${params}`, { method: "POST", body: "" })); S.test = st; syncTest(); toast(st.test ? "Тестовий режим: усе є, збереження не пишуться" : "Тестовий режим вимкнено, сейв як був"); }
   catch (e) { toast("Не вдалося: " + e.message); }
 }
-function syncTest() { const t = S.test || {}; $("testMode").checked = !!t.test; $("noclip").checked = !!t.noclip; $("noclip").disabled = !t.test; }
+function syncTest() { const t = S.test || {}; $("testMode").checked = !!t.test; $("noclip").checked = t.noclip !== false; }
 
 /* ===== Wiring ===== */
 for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setTool(b.dataset.tool);

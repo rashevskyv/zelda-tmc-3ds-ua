@@ -127,6 +127,9 @@ static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
 static bool sHighlightHidden;
+/* Link walks through walls while an editor is open, unless the PC editor's
+ * "through walls" is unticked; kept until the game quits, whatever room. */
+static bool sNoclipWanted = true;
 /* Asleep (lid shut): the link is down; after waking, frames to wait for the
  * Wi-Fi before bringing it up again. */
 static volatile bool sAsleep;
@@ -863,7 +866,7 @@ static void AnswerStatus(Client* client) {
          gRoomControls.scrollAction > 1 ? "true" : "false", (unsigned long)PortStereoEdits_Revision(), sFrame,
          PortStereoEditor_SelectionRevision(), PortStereoEditor_IsOpen() ? "true" : "false",
          gFadeControl.active ? "true" : "false", sPendingGoto.active ? "true" : "false", gMain.task,
-         sTestMode ? "true" : "false", Port_DebugQuery_Noclip() ? "true" : "false", gSave.stats.health,
+         sTestMode ? "true" : "false", sNoclipWanted ? "true" : "false", gSave.stats.health,
          gSave.stats.maxHealth, gHUD.maxHealth, sSweep.active ? "true" : "false", sSweep.shotCount, sSweep.room,
          HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree(), cellsInfo,
          PortStereoEditor_SelectedCount(), SpriteRevision(false), SpriteRevision(true), MapRevision(),
@@ -1436,11 +1439,11 @@ static void Answer(Client* client) {
             SetTestMode(QueryInt(query, "on", 0) != 0);
         }
         if (QueryInt(query, "noclip", -1) >= 0) {
-            Port_DebugAction_SetNoclip(sTestMode && QueryInt(query, "noclip", 0) != 0);
+            sNoclipWanted = QueryInt(query, "noclip", 0) != 0;
         }
         char text[64];
         snprintf(text, sizeof(text), "{\"test\":%s,\"noclip\":%s}", sTestMode ? "true" : "false",
-                 Port_DebugQuery_Noclip() ? "true" : "false");
+                 sNoclipWanted ? "true" : "false");
         Respond(client, 200, "application/json", text, strlen(text));
     } else if (post && strcmp(target, "/screen") == 0) {
         /* A background's depth on this screen when it is not a room (menus,
@@ -1737,7 +1740,7 @@ void PortStereoLink_Tick(void) {
     PendingGotoTick();
     /* Link walks through walls while an editor is open, here or on the PC. */
     const bool pcEditor = sEnabled && sRequestSeen && sFrame - sLastRequestFrame < PC_EDITOR_GONE_FRAMES;
-    Port_DebugAction_SetAutoNoclip(PortStereoEditor_IsOpen() || pcEditor);
+    Port_DebugAction_SetAutoNoclip(sNoclipWanted && (PortStereoEditor_IsOpen() || pcEditor));
     if (sQuitIn != 0 && --sQuitIn == 0) {
         LinkLog("[link] quitting for the relaunch");
         PortStereoLink_Quit();
