@@ -18,6 +18,8 @@
 #include "port_stereo.h"
 #include "port_stereo_relief.h"
 #include "port_stereo_edits.h"
+#include "port_gba_mem.h"
+#include "cpu/mode1.h"
 
 #include "global.h"
 #include "entity.h"
@@ -312,6 +314,29 @@ bool32 Port_Stereo_InRoom(void) {
     return gMain.task == TASK_GAME && gMain.state == GAMETASK_MAIN && gMain.substate != GAMEMAIN_SUBTASK;
 }
 
+/* The editor's sprite depths for screens that are not a room, by object tile,
+ * over whatever depth the sprites were drawn with (the title's cap and logo
+ * set theirs in code). Runs as the OAM's depths are committed. */
+static void ApplyScreenObjDepths(void) {
+    if (Port_Stereo_InRoom()) {
+        return;
+    }
+    const u32 key = Port_Stereo_ScreenKey();
+    if (!PortStereoEdits_ScreenHasObjs(key)) {
+        return;
+    }
+    for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
+        const u16 a0 = gOamMem[i * 4], a2 = gOamMem[i * 4 + 2];
+        if (!(a0 & 0x100) && (a0 & 0x200)) {
+            continue; /* hidden */
+        }
+        int depth;
+        if (PortStereoEdits_ScreenObjDepth(key, a2 & 0x3ff, &depth)) {
+            virtuappu_mode1_obj_stereo_depth[i] = PORT_STEREO_DEPTH(depth);
+        }
+    }
+}
+
 /* The editor's layer depths for screens that are not a room. */
 static void ApplyScreenDepths(void) {
     static u8 sSet; /* backgrounds this set, to let go of later */
@@ -333,6 +358,7 @@ static void ApplyScreenDepths(void) {
 
 void Port_Stereo_CommitRelief(void) {
     ApplyScreenDepths();
+    virtuappu_mode1_obj_depth_hook = ApplyScreenObjDepths;
     gPortStereoReliefBg[PORT_STEREO_RELIEF_BOTTOM] = -1;
     gPortStereoReliefBg[PORT_STEREO_RELIEF_TOP] = -1;
     gPortStereoReliefSink = 0;

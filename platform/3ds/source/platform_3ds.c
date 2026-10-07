@@ -7,6 +7,7 @@
 #include "port_second_screen_sync_3ds.h"
 #include "port_ua_splash.h" /* tloz-tmc-ua */
 #include "port_stereo_editor.h"
+#include "port_stereo_link.h"
 
 #include <3ds.h>
 #include <stdbool.h>
@@ -608,6 +609,24 @@ void Platform3DS_ShutdownBottomWorker(void) {
     sBottomWorkerRetryIn = 0;
 }
 
+/* Buttons pressed from the PC editor (POST /press), as if held here. */
+static void AddInjectedKeys(void) {
+    static const struct { uint32_t link; u32 key; } kMap[] = {
+        { PORT_LINK_KEY_A, KEY_A },         { PORT_LINK_KEY_B, KEY_B },         { PORT_LINK_KEY_SELECT, KEY_SELECT },
+        { PORT_LINK_KEY_START, KEY_START }, { PORT_LINK_KEY_RIGHT, KEY_DRIGHT }, { PORT_LINK_KEY_LEFT, KEY_DLEFT },
+        { PORT_LINK_KEY_UP, KEY_DUP },      { PORT_LINK_KEY_DOWN, KEY_DDOWN },  { PORT_LINK_KEY_R, KEY_R },
+        { PORT_LINK_KEY_L, KEY_L },         { PORT_LINK_KEY_X, KEY_X },         { PORT_LINK_KEY_Y, KEY_Y },
+    };
+    bool first = false;
+    const uint32_t keys = PortStereoLink_InjectedKeys(&first);
+    if (!keys) return;
+    for (size_t i = 0; i < sizeof(kMap) / sizeof(kMap[0]); ++i) {
+        if (!(keys & kMap[i].link)) continue;
+        sHeld |= kMap[i].key;
+        if (first) sDown |= kMap[i].key;
+    }
+}
+
 static void PollInput(void) {
     hidScanInput();
     sHeld = hidKeysHeld();
@@ -656,13 +675,16 @@ static void PollInput(void) {
         PortStereoEditor_Input(down, held, touching, touch.px, touch.py, cstick.dx, cstick.dy);
         /* Closed: the panel under it still holds the editor's help line. */
         if (!PortStereoEditor_IsOpen()) Port_SecondScreen_3DS_RequestRefresh();
-        /* Only the Circle Pad still walks Link. */
+        /* Only the Circle Pad still walks Link -- unless the editor gave the
+         * buttons to the game ("Г"), to get through menus and the title. */
         const u32 pad = KEY_CPAD_UP | KEY_CPAD_DOWN | KEY_CPAD_LEFT | KEY_CPAD_RIGHT;
-        sHeld &= pad;
-        sDown &= pad;
+        const u32 keep = PortStereoEditor_GameKeys() ? ~(u32)KEY_TOUCH : pad;
+        sHeld &= keep;
+        sDown &= keep;
         memset(&sCStickPosition, 0, sizeof(sCStickPosition));
         sCStickHeld = false;
         sQuickDumpComboWasHeld = false;
+        AddInjectedKeys();
         return;
     }
     if (sIsNew3DS) {
@@ -681,6 +703,7 @@ static void PollInput(void) {
     const bool quickDumpCombo = (sHeld & (KEY_L | KEY_R | KEY_A)) == (KEY_L | KEY_R | KEY_A);
     if (quickDumpCombo && !sQuickDumpComboWasHeld) sQuickDumpRequested = true;
     sQuickDumpComboWasHeld = quickDumpCombo;
+    AddInjectedKeys();
 }
 
 /* The main thread can stop advancing while audio keeps playing -- both screens

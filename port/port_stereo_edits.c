@@ -69,10 +69,12 @@ static int sRoomCount;
 static EntityEdit sEntities[MAX_ENTITIES];
 static int sEntityCount;
 static TileRule sRules[MAX_RULES];
-enum { MAX_SCREENS = 128 };
+enum { MAX_SCREENS = 512, SCREEN_OBJ = 0x100 };
+/* A background (bg 0-3) or, from SCREEN_OBJ up, the sprites drawn from one
+ * object tile (SCREEN_OBJ + tile): the title's cap and logo are sprites. */
 static struct {
     u32 key;
-    u8 bg;
+    u16 bg;
     s8 depth;
 } sScreens[MAX_SCREENS];
 static int sScreenCount;
@@ -220,7 +222,14 @@ static void ParseLine(const char* line, int kinds, int onlyRoom) {
     } else if ((kinds & PORT_STEREO_EXPORT_SCREENS) && sscanf(line, "screen %x %u %d", &a, &b, &value) == 3) {
         if (b < 4 && sScreenCount < MAX_SCREENS) {
             sScreens[sScreenCount].key = a;
-            sScreens[sScreenCount].bg = (u8)b;
+            sScreens[sScreenCount].bg = (u16)b;
+            sScreens[sScreenCount].depth = (s8)Clamp(value, -4, 15);
+            ++sScreenCount;
+        }
+    } else if ((kinds & PORT_STEREO_EXPORT_SCREENS) && sscanf(line, "screenobj %x %x %d", &a, &b, &value) == 3) {
+        if (b < 0x400 && sScreenCount < MAX_SCREENS) {
+            sScreens[sScreenCount].key = a;
+            sScreens[sScreenCount].bg = (u16)(SCREEN_OBJ + b);
             sScreens[sScreenCount].depth = (s8)Clamp(value, -4, 15);
             ++sScreenCount;
         }
@@ -329,7 +338,12 @@ static void Write(Out* out, int kinds, int onlyRoom) {
     }
     if (kinds & PORT_STEREO_EXPORT_SCREENS) {
         for (int i = 0; i < sScreenCount; ++i) {
-            OutPrintf(out, "screen %08lx %u %d\n", (unsigned long)sScreens[i].key, sScreens[i].bg, sScreens[i].depth);
+            if (sScreens[i].bg >= SCREEN_OBJ) {
+                OutPrintf(out, "screenobj %08lx %03x %d\n", (unsigned long)sScreens[i].key,
+                          (unsigned)(sScreens[i].bg - SCREEN_OBJ), sScreens[i].depth);
+            } else {
+                OutPrintf(out, "screen %08lx %u %d\n", (unsigned long)sScreens[i].key, sScreens[i].bg, sScreens[i].depth);
+            }
         }
     }
     if (kinds & PORT_STEREO_EXPORT_ENTITIES) {
@@ -357,6 +371,7 @@ bool32 PortStereoEdits_Save(void) {
           "# cell <area> <room> <b|t layer> <d add|s set> <row> <col0> <col1> <value>\n"
           "# tile <b|t> <graphics hash> <quarter> <d|s> <value>\n"
           "# screen <key> <bg 0-3> <depth>   (menus and other screens that are not a room)\n"
+          "# screenobj <key> <tile hex> <depth>   (that screen's sprites drawn from that object tile)\n"
           "# ent <kind> <id> <type> all <delta> | ent <kind> <id> <type> <area> <room> <col> <row> <delta>\n",
           out.file);
     Write(&out, PORT_STEREO_EXPORT_ALL, -1);
@@ -643,9 +658,28 @@ bool32 PortStereoEdits_ScreenDepth(u32 key, int bg, int* depth) {
     return FALSE;
 }
 
+bool32 PortStereoEdits_ScreenHasObjs(u32 key) {
+    for (int i = 0; i < sScreenCount; ++i) {
+        if (sScreens[i].key == key && sScreens[i].bg >= SCREEN_OBJ) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+bool32 PortStereoEdits_ScreenObjDepth(u32 key, int tile, int* depth) {
+    return sScreenCount != 0 && PortStereoEdits_ScreenDepth(key, SCREEN_OBJ + tile, depth);
+}
+
+void PortStereoEdits_SetScreenObjDepth(u32 key, int tile, bool32 set, int depth) {
+    if (tile >= 0 && tile < 0x400) {
+        PortStereoEdits_SetScreenDepth(key, SCREEN_OBJ + tile, set, depth);
+    }
+}
+
 void PortStereoEdits_SetScreenDepth(u32 key, int bg, bool32 set, int depth) {
     PortStereoEdits_Load();
-    if (bg < 0 || bg >= 4) {
+    if (bg < 0 || (bg >= 4 && bg < SCREEN_OBJ) || bg >= SCREEN_OBJ + 0x400) {
         return;
     }
     for (int i = 0; i < sScreenCount; ++i) {
@@ -661,7 +695,7 @@ void PortStereoEdits_SetScreenDepth(u32 key, int bg, bool32 set, int depth) {
     }
     if (set && sScreenCount < MAX_SCREENS) {
         sScreens[sScreenCount].key = key;
-        sScreens[sScreenCount].bg = (u8)bg;
+        sScreens[sScreenCount].bg = (u16)bg;
         sScreens[sScreenCount].depth = (s8)Clamp(depth, -4, 15);
         ++sScreenCount;
         Changed();

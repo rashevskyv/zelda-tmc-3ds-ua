@@ -93,5 +93,9 @@ bool32 PortStereoEdits_ScreenDepth(u32 key, int bg, int* depth);
 /* Sets that depth, or with `set` false lets the background go back to its
  * own. */
 void PortStereoEdits_SetScreenDepth(u32 key, int bg, bool32 set, int depth);
+/* The same for the sprites drawn from one object tile (0-0x3ff) there. */
+bool32 PortStereoEdits_ScreenObjDepth(u32 key, int tile, int* depth);
+bool32 PortStereoEdits_ScreenHasObjs(u32 key);
+void PortStereoEdits_SetScreenObjDepth(u32 key, int tile, bool32 set, int depth);
 
 #endif /* PORT_STEREO_EDITS_H */

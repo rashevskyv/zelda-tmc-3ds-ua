@@ -31,6 +31,10 @@
  *   POST /select?area=&room=         frame cells on the top screen; body
  *                                    "row col0 col1" lines, empty to clear
  *   POST /highlight?show=0|1         hide or show that frame (the selection stays)
+ *   POST /press?keys=a,b,start,select,up,down,left,right,l,r,x,y[&frames=6]
+ *                                    press console buttons (menus, the title)
+ *   POST /screen?bg=N|tile=T&depth=D a menu screen's background, or its sprites
+ *                                    of object tile T, at depth D (none: own)
  *   POST /save                       write stereo_edits.txt
  *   POST /file?name=x.3dsx[&quit=0]  a new build into sdmc:/3ds/ (3DSX only); the
  *                                    game then quits to the Homebrew Launcher
@@ -75,6 +79,14 @@ int PortStereoLink_QuitSeconds(void);
 
 /* Close the sockets and the network: on leaving the game. */
 void PortStereoLink_Shutdown(void);
+/* Buttons the PC editor presses (POST /press?keys=a,start&frames=6): held
+ * for that many frames; `first` on the first of them. Main thread. */
+enum {
+    PORT_LINK_KEY_A = 1 << 0, PORT_LINK_KEY_B = 1 << 1, PORT_LINK_KEY_SELECT = 1 << 2, PORT_LINK_KEY_START = 1 << 3,
+    PORT_LINK_KEY_RIGHT = 1 << 4, PORT_LINK_KEY_LEFT = 1 << 5, PORT_LINK_KEY_UP = 1 << 6, PORT_LINK_KEY_DOWN = 1 << 7,
+    PORT_LINK_KEY_R = 1 << 8, PORT_LINK_KEY_L = 1 << 9, PORT_LINK_KEY_X = 1 << 10, PORT_LINK_KEY_Y = 1 << 11,
+};
+uint32_t PortStereoLink_InjectedKeys(bool* first);
 /* Lid shut / opened: the network goes down before sleep, back after waking. */
 void PortStereoLink_Sleep(bool asleep);
 bool PortStereoLink_Enabled(void);

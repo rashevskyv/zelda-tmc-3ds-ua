@@ -49,6 +49,8 @@ enum {
      * button left of it. */
     PORT_STEREO_EDITOR_HELP_X0 = 284,
     PORT_STEREO_EDITOR_ROOMS_X0 = 248,
+    /* "Г": the buttons go to the game (menus, the title) until tapped again. */
+    PORT_STEREO_EDITOR_GAME_X0 = 212,
     PORT_STEREO_EDITOR_HELP_Y0 = 202,
 };
 
@@ -126,6 +128,8 @@ void PortStereoEditor_Status(char* line, size_t size);
 bool PortStereoEditor_HelpOpen(void);
 void PortStereoEditor_ShowHelp(void);
 void PortStereoEditor_ShowRooms(void);
+/* The buttons go to the game, not the editor ("Г"); any thread. */
+bool PortStereoEditor_GameKeys(void);
 const char* const* PortStereoEditor_HelpLines(int* count);
 
 #endif /* PORT_STEREO_EDITOR_H */

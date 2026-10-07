@@ -33,6 +33,7 @@ enum { SIDE = PORT_STEREO_EDIT_SIDE };
 
 static volatile bool sOpen;
 static volatile bool sHelp;
+static volatile bool sGameKeys;
 static int sZoom = 1;
 static float sPanX, sPanY;
 static int sLayers = PORT_STEREO_EDIT_BOTH;
@@ -284,7 +285,9 @@ static void PublishStatus(void) {
     const int next = !sLineBuffer;
     char* line = sLines[next];
     int lo = 0, hi = 0;
-    if (sSaveFailed) {
+    if (sGameKeys) {
+        snprintf(line, LINE_SIZE, "Кнопки в грі. Г - назад");
+    } else if (sSaveFailed) {
         snprintf(line, LINE_SIZE, "Не вдалося зберегти stereo_edits.txt");
     } else if (!InGame()) {
         snprintf(line, LINE_SIZE, "Лише в грі");
@@ -310,6 +313,7 @@ static void PublishStatus(void) {
 
 void PortStereoEditor_Open(void) {
     PortStereoEdits_Load();
+    sGameKeys = false;
     sSel = SEL_NONE;
     sHelp = false;
     sTouching = false;
@@ -452,6 +456,14 @@ static bool OnHelpButton(int x, int y) {
     return x >= PORT_STEREO_EDITOR_HELP_X0 && y >= PORT_STEREO_EDITOR_HELP_Y0;
 }
 
+static bool OnGameButton(int x, int y) {
+    return x >= PORT_STEREO_EDITOR_GAME_X0 && x < PORT_STEREO_EDITOR_ROOMS_X0 - 2 && y >= PORT_STEREO_EDITOR_HELP_Y0;
+}
+
+bool PortStereoEditor_GameKeys(void) {
+    return sOpen && sGameKeys;
+}
+
 static bool OnRoomsButton(int x, int y) {
     return x >= PORT_STEREO_EDITOR_ROOMS_X0 && x < PORT_STEREO_EDITOR_HELP_X0 - 2 && y >= PORT_STEREO_EDITOR_HELP_Y0;
 }
@@ -479,6 +491,17 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
     if (sWaitRelease) {
         sWaitRelease = touching;
         touching = false;
+    }
+    /* "Г": the game has the buttons; only that button again takes them back. */
+    if (touching && !sTouching && OnGameButton(touchX, touchY)) {
+        sGameKeys = !sGameKeys;
+        sWaitRelease = true;
+        PublishStatus();
+        return;
+    }
+    if (sGameKeys) {
+        PublishStatus();
+        return;
     }
     if (ListInput(down, held, touching, touchX, touchY)) {
         if (touching) {
@@ -759,6 +782,7 @@ const char* const* PortStereoEditor_HelpLines(int* count) {
         "L/R - масштаб, C-стік - прокрутка",
         "Select - кольори / числа / обидва / лише правки",
         "B-кнопка - зберегти й вийти; кнопка К - кімнати",
+        "Кнопка Г - кнопки грі (меню, заставка) і назад",
         "Колір: синій нижче, зелений-червоний вище",
     };
     *count = (int)(sizeof(kLines) / sizeof(kLines[0]));

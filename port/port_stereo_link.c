@@ -127,6 +127,9 @@ static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
 static bool sHighlightHidden;
+/* Buttons pressed from the PC: which, for how many more frames. */
+static uint32_t sInjectKeys;
+static unsigned sInjectFrames, sInjectTotal;
 /* Link walks through walls while an editor is open, unless the PC editor's
  * "through walls" is unticked; kept until the game quits, whatever room. */
 static bool sNoclipWanted = true;
@@ -749,11 +752,13 @@ static unsigned MapRevision(void) {
  *   u16 tiles; entries x (u16 attr0, attr1, attr2, u16 flags: bit 0 Link's);
  *   tiles x (u16 slot, 32 bytes of object VRAM at slot * 32); then the
  *   object palette (0x200). */
+static bool sPlayerEverything;
+
 static bool PlayerWanted(const u16* oam, int i, bool all) {
     if ((oam[i * 4] >> 14) == 3) {
         return false;
     }
-    return all ? ((oam[i * 4 + 2] >> 10) & 3) != 0 : virtuappu_mode1_obj_player[i] != 0;
+    return all ? (sPlayerEverything || ((oam[i * 4 + 2] >> 10) & 3) != 0) : virtuappu_mode1_obj_player[i] != 0;
 }
 
 static void AnswerPlayer(Client* client, bool all) {
@@ -800,7 +805,8 @@ static void AnswerPlayer(Client* client, bool all) {
     for (int i = 0; i < MODE1_GBA_OAM_COUNT; ++i) {
         if (PlayerWanted(oam, i, all) && !(!(oam[i * 4] & 0x100) && (oam[i * 4] & 0x200))) {
             Put(&b, &oam[i * 4], 6);
-            PutU16(&b, virtuappu_mode1_obj_player[i] ? 1u : 0u);
+            /* bit 0 Link's; bits 8-15 the depth tag it was drawn with */
+            PutU16(&b, (virtuappu_mode1_obj_player[i] ? 1u : 0u) | ((unsigned)virtuappu_mode1_obj_stereo_depth[i] << 8));
         }
     }
     for (int slot = 0; slot < 1024; ++slot) {
@@ -1418,6 +1424,7 @@ static void Answer(Client* client) {
         }
         Respond(client, 200, "application/json", text, strlen(text));
     } else if (strcmp(target, "/player") == 0) {
+        sPlayerEverything = QueryInt(query, "all", 0) == 2; /* the HUD's too: menus, the title */
         AnswerPlayer(client, QueryInt(query, "all", 0) != 0);
     } else if (strcmp(target, "/entities") == 0) {
         AnswerEntities(client);
@@ -1425,6 +1432,34 @@ static void Answer(Client* client) {
         AnswerEdits(client, query, post, body, bodyLength);
     } else if (post && strcmp(target, "/goto") == 0) {
         AnswerGoto(client, query);
+    } else if (post && strcmp(target, "/press") == 0) {
+        static const struct { const char* name; uint32_t key; } kNames[] = {
+            { "a", PORT_LINK_KEY_A },         { "b", PORT_LINK_KEY_B },         { "select", PORT_LINK_KEY_SELECT },
+            { "start", PORT_LINK_KEY_START }, { "right", PORT_LINK_KEY_RIGHT }, { "left", PORT_LINK_KEY_LEFT },
+            { "up", PORT_LINK_KEY_UP },       { "down", PORT_LINK_KEY_DOWN },   { "r", PORT_LINK_KEY_R },
+            { "l", PORT_LINK_KEY_L },         { "x", PORT_LINK_KEY_X },         { "y", PORT_LINK_KEY_Y },
+        };
+        uint32_t keys = 0;
+        const char* list = query ? strstr(query, "keys=") : NULL;
+        if (list != NULL) {
+            list += 5;
+            while (*list && *list != '&') {
+                size_t n = strcspn(list, ",&");
+                for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); ++i) {
+                    if (strlen(kNames[i].name) == n && strncasecmp(list, kNames[i].name, n) == 0) {
+                        keys |= kNames[i].key;
+                    }
+                }
+                list += n;
+                if (*list == ',') {
+                    ++list;
+                }
+            }
+        }
+        const int frames = QueryInt(query, "frames", 6);
+        sInjectKeys = keys;
+        sInjectTotal = sInjectFrames = keys ? (unsigned)(frames < 1 ? 1 : frames > 240 ? 240 : frames) : 0;
+        RespondText(client, keys ? 200 : 400, keys ? "ok" : "no such button");
     } else if (post && strcmp(target, "/highlight") == 0) {
         /* The PC editor's "show the selection": the frame on the top screen
          * goes, the selection stays. */
@@ -1448,12 +1483,22 @@ static void Answer(Client* client) {
     } else if (post && strcmp(target, "/screen") == 0) {
         /* A background's depth on this screen when it is not a room (menus,
          * the world map); without depth= it goes back to its own. */
-        const int bg = QueryInt(query, "bg", -1);
+        const int bg = QueryInt(query, "bg", -1), tile = QueryInt(query, "tile", -1);
         const bool set = query != NULL && strstr(query, "depth=") != NULL;
-        if (bg < 0 || bg > 3 || Port_Stereo_InRoom()) {
+        /* key=<hex>: a screen saved earlier, not the one on show now. */
+        const char* keyText = query ? strstr(query, "key=") : NULL;
+        const bool other = keyText != NULL;
+        const u32 key = other ? (u32)strtoul(keyText + 4, NULL, 16) : Port_Stereo_ScreenKey();
+        if ((bg < 0 || bg > 3) && (tile < 0 || tile > 0x3ff)) {
+            RespondText(client, 400, "bg=0..3 or tile=0..1023");
+        } else if (!other && Port_Stereo_InRoom()) {
             RespondText(client, 409, "not a menu screen");
         } else {
-            PortStereoEdits_SetScreenDepth(Port_Stereo_ScreenKey(), bg, set, QueryInt(query, "depth", 0));
+            if (tile >= 0) {
+                PortStereoEdits_SetScreenObjDepth(key, tile, set, QueryInt(query, "depth", 0));
+            } else {
+                PortStereoEdits_SetScreenDepth(key, bg, set, QueryInt(query, "depth", 0));
+            }
             PortStereoEdits_Save();
             RespondText(client, 200, "ok");
         }
@@ -1857,6 +1902,15 @@ void PortStereoLink_Sleep(bool asleep) {
         sAsleep = false;
         sWakeWait = 60 * 3;
     }
+}
+
+uint32_t PortStereoLink_InjectedKeys(bool* first) {
+    if (sInjectFrames == 0) {
+        return 0;
+    }
+    *first = sInjectFrames == sInjectTotal;
+    --sInjectFrames;
+    return sInjectKeys;
 }
 
 void PortStereoLink_Shutdown(void) {

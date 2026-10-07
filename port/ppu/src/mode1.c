@@ -524,7 +524,12 @@ void virtuappu_mode1_commit_obj_metadata(void) {
            sizeof(virtuappu_mode1_obj_y_negative));
     virtuappu_mode1_obj_clip_y = virtuappu_mode1_obj_clip_y_staged;
     virtuappu_mode1_obj_clip_enable = virtuappu_mode1_obj_clip_enable_staged;
+    if (virtuappu_mode1_obj_depth_hook) {
+        virtuappu_mode1_obj_depth_hook();
+    }
 }
+
+void (*virtuappu_mode1_obj_depth_hook)(void);
 
 uint16_t virtuappu_mode1_io_read16(uint16_t offset) {
     const uint8_t* src = virtuappu_mode1_io_thread_override ? virtuappu_mode1_io_thread_override : mode1_memory.io_mem;

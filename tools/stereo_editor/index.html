@@ -113,6 +113,11 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
 .seg button { border-radius: 0; margin-left: -1px; }
 .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .seg button:last-child { border-radius: 0 6px 6px 0; }
+.padGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 6px; }
+.padGrid button { padding: 6px 2px; font-size: 12px; }
+.spriteRow { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.spriteRow canvas { image-rendering: pixelated; background: #0006; border-radius: 3px; flex: none; }
+.spriteRow .name { flex: 1; }
 .popover { position: absolute; right: 10px; top: 46px; z-index: 15; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; flex-direction: column; gap: 4px; min-width: 240px; }
 .popover.open { display: flex; }
 .depthItem.sel { background: #1b3a4b; }
@@ -265,11 +270,29 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <div class="row"><button id="entDown" title="Далі від глядача">далі</button><button id="entUp" title="Ближче до глядача">ближче</button><button id="entReset">скинути</button></div>
       <div id="entityList"></div>
     </div>
-    <div class="section" id="screenSec" data-panel="screen" style="display:none">
+    <div class="section" id="screenSec" data-panel="screen">
       <h3>Шари екрана</h3>
-      <div class="small muted">Консоль зараз не в кімнаті, а на екрані меню (мапа, предмети…). Глибину кожного шару цього екрана можна задати тут; дивіться на «кадр консолі». Менше число — ближче до глядача, від’ємне — перед екраном.</div>
-      <div id="screenKey" class="small muted"></div>
-      <div id="screenLayers"></div>
+      <div id="screenNow" style="display:none">
+        <div class="small muted">Консоль не в кімнаті, а на екрані меню чи заставці. Глибину кожного фону й кожного спрайта цього екрана можна задати тут; дивіться на «кадр консолі». Менше число — ближче до глядача, від’ємне — перед екраном.</div>
+        <div id="screenKey" class="small muted"></div>
+        <div id="screenLayers"></div>
+        <div class="small muted" style="margin-top:6px">Спрайти екрана (за тайлом графіки)</div>
+        <div id="screenSprites"></div>
+      </div>
+      <div id="screenAway" class="small muted">Консоль у кімнаті. Щоб дістатися меню чи заставки, скористайтеся «Кнопками консолі».</div>
+      <div class="small muted" style="margin-top:8px">Екрани з правками</div>
+      <div id="screenSaved"></div>
+    </div>
+    <div class="section" data-panel="pad">
+      <h3>Кнопки консолі</h3>
+      <div class="small muted">Натискають кнопки на консолі — щоб пройти меню, заставку, вибір файлу. Затисніть кнопку миші, щоб тримати.</div>
+      <div class="padGrid">
+        <button data-key="l">L</button><span></span><span></span><span></span><button data-key="r">R</button>
+        <span></span><button data-key="up">▲</button><span></span><button data-key="x">X</button><span></span>
+        <button data-key="left">◀</button><span></span><button data-key="right">▶</button><button data-key="y">Y</button><button data-key="a">A</button>
+        <span></span><button data-key="down">▼</button><span></span><button data-key="b">B</button><span></span>
+        <span></span><button data-key="select">SELECT</button><span></span><button data-key="start">START</button><span></span>
+      </div>
     </div>
     <div class="section" data-panel="test">
       <h3>Тестування</h3>
@@ -1879,7 +1902,9 @@ async function gotoRoomQuiet(area, room) {
 let screenSig = "";
 function syncScreen(st) {
   const on = st.inRoom === false && Array.isArray(st.bgs);
-  $("screenSec").style.display = on ? "" : "none";
+  $("screenNow").style.display = on ? "" : "none"; $("screenAway").style.display = on ? "none" : "";
+  if (on && performance.now() - (S.screenSpritesAt || 0) > 1500) { S.screenSpritesAt = performance.now(); loadScreenSprites(st); }
+  if (performance.now() - (S.screenSavedAt || 0) > 5000) { S.screenSavedAt = performance.now(); loadSavedScreens(st); }
   if (!on) { screenSig = ""; return; }
   const sig = st.screen + JSON.stringify(st.bgs);
   if (sig === screenSig) return;
@@ -1899,6 +1924,62 @@ function syncScreen(st) {
     if (b.depth !== null) row.append(btn("скинути", "Повернути шару його власну глибину", () => set(null)));
     box.append(row);
   }
+}
+/* The screen's sprites, one row per object tile, with what they show. */
+async function loadScreenSprites(st) {
+  if (S.screenSpritesBusy) return; S.screenSpritesBusy = true;
+  try {
+    const [buf, text] = await Promise.all([api("/player?all=2", { binary: true, timeout: 4000 }), api("/edits?kinds=8")]);
+    const p = parsePlayer(buf), pal = [...p.palette].map(rgb555);
+    const saved = new Map();
+    for (const line of text.split("\n")) { const m = line.match(/^screenobj ([0-9a-f]+) ([0-9a-f]+) (-?\d+)/i); if (m && m[1].toLowerCase() === String(st.screen).toLowerCase()) saved.set(parseInt(m[2], 16), +m[3]); }
+    const groups = new Map();
+    for (const e of p.entries) { const tile = e[2] & 0x3ff; if (!groups.has(tile)) groups.set(tile, []); groups.get(tile).push(e); }
+    const box = $("screenSprites"); box.innerHTML = "";
+    if (!groups.size) { box.textContent = "спрайтів немає"; return; }
+    const fake = { originX: p.scrollX, originY: p.scrollY };
+    for (const [tile, list] of [...groups].sort((a, b) => a[0] - b[0])) {
+      const cvs = oamEntryCanvases(fake, p, pal, list.map(e => [e[0], e[1], e[2], 0]));
+      const row = document.createElement("div"); row.className = "spriteRow";
+      const th = document.createElement("canvas"); const src = cvs[0];
+      if (src) { const k = Math.max(1, Math.min(3, Math.floor(32 / Math.max(src.cv.width, src.cv.height)) || 1)); th.width = src.cv.width * k; th.height = src.cv.height * k; const g = th.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(src.cv, 0, 0, th.width, th.height); }
+      const tag = list[0][3] >> 8, prio = (list[0][2] >> 10) & 3;
+      const own = tag ? tag - 5 : 3 * prio - 2, has = saved.has(tile), depth = has ? saved.get(tile) : own;
+      const name = document.createElement("span"); name.className = "name";
+      name.innerHTML = `тайл ${tile.toString(16).padStart(3, "0")} ×${list.length}: <b>${depth}</b>${has ? "" : ' <span class="muted">своя</span>'}`;
+      const btn = (t, title, f) => { const e = document.createElement("button"); e.textContent = t; e.title = title; e.onclick = f; return e; };
+      const set = d => screenObjDepth(tile, d);
+      row.append(th, name, btn("ближче", "Ближче до глядача", () => set(depth - 1)), btn("далі", "Далі від глядача", () => set(depth + 1)));
+      if (has) row.append(btn("×", "Повернути спрайту його власну глибину", () => set(null)));
+      box.append(row);
+    }
+  } catch (e) {} finally { S.screenSpritesBusy = false; }
+}
+async function screenObjDepth(tile, depth) {
+  if (depth !== null) depth = Math.max(-4, Math.min(15, depth));
+  try { await api(`/screen?tile=${tile}${depth === null ? "" : "&depth=" + depth}`, { method: "POST", body: "" }); S.screenSpritesAt = 0; S.screenSavedAt = 0; } catch (e) { toast("Не вдалося: " + e.message); }
+}
+/* Every screen that has depths set, to see them and undo them from anywhere. */
+async function loadSavedScreens(st) {
+  try {
+    const text = await api("/edits?kinds=8"), screens = new Map();
+    for (const line of text.split("\n")) {
+      const m = line.match(/^(screen|screenobj) ([0-9a-f]+) ([0-9a-f]+) (-?\d+)/i); if (!m) continue;
+      const key = m[2].toLowerCase(); if (!screens.has(key)) screens.set(key, []);
+      screens.get(key).push({ obj: m[1] === "screenobj", id: m[1] === "screenobj" ? parseInt(m[3], 16) : +m[3], depth: +m[4] });
+    }
+    const box = $("screenSaved"); box.innerHTML = "";
+    if (!screens.size) { box.textContent = "ще немає"; return; }
+    const now = st.inRoom === false ? String(st.screen).toLowerCase() : "";
+    for (const [key, list] of screens) {
+      const row = document.createElement("div"); row.className = "listItem";
+      const parts = list.map(x => x.obj ? `тайл ${x.id.toString(16)}: ${x.depth}` : `BG${x.id}: ${x.depth}`).join(", ");
+      row.innerHTML = `<span><b>${key}</b>${key === now ? ' <span class="badge">зараз</span>' : ""}<br><span class="muted small">${parts}</span></span>`;
+      const b = document.createElement("button"); b.textContent = "скинути"; b.title = "Повернути цьому екрану всі власні глибини";
+      b.onclick = async ev => { ev.stopPropagation(); for (const x of list) await api(`/screen?key=${key}&${x.obj ? "tile" : "bg"}=${x.id}`, { method: "POST", body: "" }).catch(() => {}); S.screenSavedAt = 0; S.screenSpritesAt = 0; screenSig = ""; };
+      row.append(b); box.append(row);
+    }
+  } catch (e) {}
 }
 async function screenDepth(bg, depth) {
   if (depth !== null) depth = Math.max(-4, Math.min(15, depth));
@@ -2140,6 +2221,14 @@ function onlySprites() {
   syncToggles(); draw();
 }
 $("onlySprites").addEventListener("click", onlySprites);
+/* Console buttons: a click presses for a moment; holding the mouse keeps it
+ * pressed, renewed while held. */
+for (const b of document.querySelectorAll("[data-key]")) {
+  let timer = 0;
+  const press = frames => { if (S.connected) api(`/press?keys=${b.dataset.key}&frames=${frames}`, { method: "POST", body: "" }).catch(() => {}); };
+  b.addEventListener("mousedown", ev => { if (ev.button) return; press(8); timer = setTimeout(function hold() { press(20); timer = setTimeout(hold, 250); }, 300); });
+  for (const t of ["mouseup", "mouseleave"]) b.addEventListener(t, () => { clearTimeout(timer); timer = 0; });
+}
 $("depthAll").addEventListener("click", () => { S.hidden.clear(); layersChanged(); });
 $("depthShowSel").addEventListener("click", () => { for (const k of S.layerSel) S.hidden.delete(k); layersChanged(); });
 $("depthHideSel").addEventListener("click", () => { for (const k of S.layerSel) S.hidden.add(k); layersChanged(); });
@@ -2178,7 +2267,7 @@ function setupDock() {
   const dock = document.createElement("div"); dock.id = "dock"; aside.replaceWith(dock);
   let layout = null; try { layout = JSON.parse(localStorage.getItem("tmc-dock") || "null"); } catch (e) {}
   const defaults = { cols: 2, widths: [300, 300, 300, 300], collapsed: [],
-    place: { tool: 0, editLayer: 0, height: 0, rules: 0, entities: 0, screen: 0, test: 0, layers: 1, view: 1 }, order: panels.map(p => p.dataset.panel) };
+    place: { tool: 0, editLayer: 0, height: 0, rules: 0, entities: 0, screen: 1, pad: 1, test: 0, layers: 1, view: 1 }, order: panels.map(p => p.dataset.panel) };
   S.dock = Object.assign(defaults, layout || {});
   for (const id of S.panels.keys()) { if (!S.dock.order.includes(id)) S.dock.order.push(id); if (!(id in S.dock.place)) S.dock.place[id] = 0; }
   $("dockCols").value = S.dock.cols;

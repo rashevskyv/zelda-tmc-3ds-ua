@@ -120,6 +120,9 @@ extern uint8_t virtuappu_mode1_obj_stereo_depth_staged[MODE1_GBA_OAM_COUNT];
 extern uint8_t virtuappu_mode1_obj_player[MODE1_GBA_OAM_COUNT];
 extern uint8_t virtuappu_mode1_obj_player_staged[MODE1_GBA_OAM_COUNT];
 void virtuappu_mode1_commit_obj_metadata(void);
+/* Called at the end of that commit, to correct the depths it took (the port's
+ * per-screen sprite depths); may be NULL. */
+extern void (*virtuappu_mode1_obj_depth_hook)(void);
 
 /* Runtime WIP widescreen HUD anchor. BG0 stays 32 tiles wide, but gameplay
  * HUD uses both left-anchored widgets (hearts/charge) and right-anchored
