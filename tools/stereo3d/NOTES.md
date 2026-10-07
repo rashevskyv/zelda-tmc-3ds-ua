@@ -392,3 +392,6 @@ python3 ua/measure_panel.py --ua-rom ../tloz-tmc-ua/tmc-ua-port.gba --en-rom ../
   попередньо зберігши свій як boot.3dsx.orig).
 - Цикл після встановлення: `POST /file?name=…3dsx` (гра пише й сама виходить) →
   `curl http://192.168.50.125:17492/launch?path=/3ds/…3dsx`.
+- **Встановлено (2026-10-07, з дозволу користувача)**: новий лаунчер у sdmc:/boot.3dsx, старий —
+  sdmc:/boot.3dsx.orig. Перевірено на залізі: `/launch` запускає гру за ~12 с, після `POST /quit`
+  лаунчер відповідає за 2 с. Доставка збірки тепер без рук: `POST /file` → `/launch`.
