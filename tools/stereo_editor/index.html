@@ -56,6 +56,9 @@ aside.right { border-left: 1px solid var(--line); }
 .roomItem .cached { font-size: 10px; color: var(--dim); }
 #viewWrap { position: relative; min-width: 0; min-height: 0; background: #0d0e11; overflow: hidden; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; image-rendering: pixelated; }
+#view3d { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
+#hint3d { position: absolute; left: 10px; bottom: 30px; background: rgba(22,24,29,.85); padding: 4px 8px; border-radius: 6px; max-width: 60%; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#hint3d[hidden] { display: none; }
 #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--dim); padding: 40px; pointer-events: none; }
 #empty b { color: var(--text); }
 #hud { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
@@ -160,6 +163,9 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
   </aside>
   <section id="viewWrap">
     <canvas id="view"></canvas>
+    <canvas id="view3d" hidden></canvas>
+    <div id="hint3d" class="small" hidden>Об'ємний вигляд: ліва кнопка чи Ctrl+коліщатко (затиснути) — нахил і поворот, коліщатко — масштаб, середня кнопка — рухати, R — скинути. Редагувати — у звичайному вигляді (Q).
+      <label>Об'єм <input type="range" id="vol3d" min="1" max="16" value="5"></label></div>
     <div id="empty"><div><b>Кімнату ще не завантажено.</b><br><br>Увімкніть на консолі <i>Налаштування → Інструменти → Редактор ПК</i>,<br>впишіть адресу, яку вона покаже, і натисніть «Підключитися».<br>Для Azahar адреса — <b>localhost</b>.</div></div>
     <div id="hud"></div>
     <div id="viewBar" style="position:absolute;right:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 300px)">
@@ -169,6 +175,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       <button class="toggle" data-check="showSprites" title="Спрайти гри: меблі, рами дверей…">☻ Спрайти</button>
       <button class="toggle" data-check="showBottom" title="Нижній шар мапи (BG нижній): земля, підлога">▁ Нижній</button>
       <button class="toggle" data-check="showTop" title="Верхній шар мапи: крони, дахи, верх стін">▔ Верхній</button>
+      <button class="toggle" data-check="view3d" title="Об'ємний вигляд кімнати: шари на своїх глибинах, з боками; нахиляйте й обертайте (Q)">◆ Об'єм</button>
       <button id="onlySprites" title="Лише спрайти: сховати обидва шари мапи; ще раз — повернути (O)">Лише спрайти</button>
       <span class="sep" style="width:1px;background:var(--line)"></span>
       <button id="areaBtn" title="Мапа області: усі вже відкриті кімнати області на своїх місцях (M). Клік — відкрити кімнату, Ctrl+клік — перенести туди Лінка">Мапа області</button>
@@ -314,6 +321,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
       </div>
       <div class="row">
         <label title="Червоно-блакитний анагліф з висот редактора"><input type="checkbox" id="preview3d"> 3D-перегляд (анагліф)</label>
+        <label title="Об'ємний вигляд кімнати з перспективою (Q)"><input type="checkbox" id="view3d"> об'ємний вигляд</label>
         <label title="Справжній кадр обох очей прямо з консолі, оновлюється кілька разів на секунду (V)"><input type="checkbox" id="liveOn"> кадр консолі</label>
       </div>
       <div class="row legend" id="legend"></div>
@@ -919,7 +927,7 @@ function markCurrentRoomInTree() {
 /* ===== Heights: measured, then tile rules, then room cells (as the game) ===== */
 function recompute() {
   if (S.room) S.heights = computeHeights(S.room, $("showAuto").checked);
-  S.masked = null;
+  S.masked = null; G3.dirty = true;
   if (S.room) renderDepthLayers();
 }
 
@@ -1003,7 +1011,7 @@ function renderDepthLayers() {
   });
   box.scrollTop = scroll;
 }
-function layersChanged() { saveHidden(); S.masked = null; renderDepthLayers(); draw(); }
+function layersChanged() { saveHidden(); S.masked = null; G3.dirty = true; renderDepthLayers(); draw(); }
 function selectLayerCells(keys, add) {
   const cells = [];
   for (const row of S.depthRows || []) if (keys.includes(row.key) && row.cells) cells.push(...row.cells);
@@ -1117,6 +1125,7 @@ function toCell(mx, my) { const x = (mx - S.panX) / S.zoom, y = (my - S.panY) / 
 function inRoom(col, row) { return S.room && col >= 0 && row >= 0 && col < S.room.cols && row < S.room.rows; }
 
 function draw() {
+  if ($("view3d").checked && !S.areaView) { draw3d(); return; }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = "#0d0e11"; ctx.fillRect(0, 0, view.width, view.height);
   if (S.areaView) return drawArea();
@@ -1703,6 +1712,7 @@ window.addEventListener("keydown", ev => {
   }
   if (numberField && (/^\d$/.test(k) || k === "-" || k === "+" || k.startsWith("arrow") || k === "backspace" || k === "delete")) return;
   if (k === " ") { S.spaceDown = true; ev.preventDefault(); return; }
+  if (k === "r" && $("view3d").checked) { reset3d(); draw(); return; }
   const tools = { r: "rect", b: "brush", l: "lasso", w: "wand", t: "tile", i: "pick", e: "entity", h: "pan" };
   if (tools[k]) return setTool(tools[k]);
   if (k === "arrowup" || k === "+" || k === "=") { ev.preventDefault(); stepSel(1); }
@@ -1715,6 +1725,7 @@ window.addEventListener("keydown", ev => {
   else if (k === "v") toggle("liveOn");
   else if (k === "s") toggle("showSel");
   else if (k === "o") onlySprites();
+  else if (k === "q") toggle("view3d");
   else if (k === "n") { const order = ["colour", "number", "both"], cur = document.querySelector("input[name=heatMode]:checked").value; setHeatMode(order[(order.indexOf(cur) + 1) % 3]); }
   else if (k === "m") toggleArea();
   else if (k === "g") toggle("showGrid"); else if (k === "c") { toggle("showHeat"); syncHeatBtn(); } else if (k === "p") toggle("preview3d");
@@ -1989,6 +2000,167 @@ async function screenDepth(bg, depth) {
   } catch (e) { toast("Не вдалося: " + e.message); }
 }
 
+/* ===== The room in 3D: every cell at its depth, with sides (WebGL) ===== */
+const G3 = { gl: null, prog: null, dirty: true, meshes: [], yaw: 0, pitch: 0, dist: 0, tx: 0, ty: 0, drag: null, roomKey: "" };
+const V3 = `attribute vec3 p; attribute vec2 t; uniform mat4 m; varying vec2 v; void main(){ v=t; gl_Position=m*vec4(p,1.0); }`;
+const F3 = `precision mediump float; varying vec2 v; uniform sampler2D s; uniform float shade; void main(){ vec4 c=texture2D(s,v); if(c.a<0.5) discard; gl_FragColor=vec4(c.rgb*shade,1.0); }`;
+function gl3() {
+  if (G3.gl) return G3.gl;
+  const cv = $("view3d"), gl = cv.getContext("webgl", { antialias: false, alpha: false });
+  if (!gl) { toast("WebGL недоступний у цьому браузері"); return null; }
+  const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); return o; };
+  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, V3)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, F3)); gl.linkProgram(prog);
+  G3.gl = gl; G3.prog = prog;
+  G3.loc = { p: gl.getAttribLocation(prog, "p"), t: gl.getAttribLocation(prog, "t"), m: gl.getUniformLocation(prog, "m"), s: gl.getUniformLocation(prog, "s"), shade: gl.getUniformLocation(prog, "shade") };
+  return gl;
+}
+function texFrom(gl, canvas, old) {
+  const tex = old || gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  return tex;
+}
+/* Quads of one map layer: a top per cell, and a side wherever the cell next
+ * to it stands at another depth, painted with the nearer cell's edge pixels. */
+function layerMesh(L, K) {
+  const r = S.room, prio = r.bg[L] & 3, pos = [], uv = [], shade = [];
+  const W = r.width, H = r.height;
+  const has = i => S.cellPixels[L][i] && !hiddenCell(L, i);
+  const z = i => -(3 * prio - cellLayerHeight(L, i)) * K;
+  const quad = (a, b, c, d, ta, tb, tc, td, out) => { out.p.push(...a, ...b, ...c, ...a, ...c, ...d); out.t.push(...ta, ...tb, ...tc, ...ta, ...tc, ...td); };
+  const tops = { p: [], t: [] }, sides = { p: [], t: [] };
+  for (let row = 0; row < r.rows; ++row) for (let col = 0; col < r.cols; ++col) {
+    const i = row * SIDE + col; if (!has(i)) continue;
+    const x0 = col * 8, y0 = row * 8, zi = z(i);
+    quad([x0, -y0, zi], [x0 + 8, -y0, zi], [x0 + 8, -y0 - 8, zi], [x0, -y0 - 8, zi],
+         [x0 / W, y0 / H], [(x0 + 8) / W, y0 / H], [(x0 + 8) / W, (y0 + 8) / H], [x0 / W, (y0 + 8) / H], tops);
+    /* right and lower neighbours, each pair once */
+    if (col + 1 < r.cols && has(i + 1)) {
+      const zj = z(i + 1);
+      if (zi !== zj) {
+        const u = (zi > zj ? x0 + 7.5 : x0 + 8.5) / W, x = x0 + 8;
+        quad([x, -y0, zi], [x, -y0, zj], [x, -y0 - 8, zj], [x, -y0 - 8, zi], [u, y0 / H], [u, y0 / H], [u, (y0 + 8) / H], [u, (y0 + 8) / H], sides);
+      }
+    }
+    if (row + 1 < r.rows && has(i + SIDE)) {
+      const zj = z(i + SIDE);
+      if (zi !== zj) {
+        const v = (zi > zj ? y0 + 7.5 : y0 + 8.5) / H, y = y0 + 8;
+        quad([x0, -y, zi], [x0 + 8, -y, zi], [x0 + 8, -y, zj], [x0, -y, zj], [x0 / W, v], [(x0 + 8) / W, v], [(x0 + 8) / W, v], [x0 / W, v], sides);
+      }
+    }
+  }
+  return { tops, sides };
+}
+function buffer(gl, data) { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); return b; }
+function rebuild3d(gl) {
+  for (const m of G3.meshes) { gl.deleteBuffer(m.pb); gl.deleteBuffer(m.tb); }
+  G3.meshes = [];
+  const r = S.room, K = +$("vol3d").value, layers = visibleLayers();
+  G3.tex = G3.tex || [];
+  for (let L = 0; L < 2; ++L) {
+    if (!r.bg[L] || !$(L ? "showTop" : "showBottom").checked) continue;
+    G3.tex[L] = texFrom(gl, layers[L], G3.tex[L]);
+    const { tops, sides } = layerMesh(L, K);
+    for (const [part, shade] of [[tops, 1.0], [sides, 0.72]]) if (part.p.length) G3.meshes.push({ tex: () => G3.tex[L], pb: buffer(gl, part.p), tb: buffer(gl, part.t), n: part.p.length / 3, shade });
+  }
+  /* Sprites by priority, each a flat sheet where its priority stands; the
+   * backdrop colour behind everything. */
+  const W = r.width, H = r.height, sheet = (zz, tex, shade) => {
+    const p = [0, 0, zz, W, 0, zz, W, -H, zz, 0, 0, zz, W, -H, zz, 0, -H, zz], t = [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1];
+    G3.meshes.push({ tex, pb: buffer(gl, p), tb: buffer(gl, t), n: 6, shade });
+  };
+  G3.spr = G3.spr || [];
+  for (let p = 0; p < 4; ++p) { const k = p; sheet(-(3 * p - 2) * K + 0.01, () => G3.spr[k], 1.0); }
+  const back = document.createElement("canvas"); back.width = back.height = 2; const bg = back.getContext("2d"); bg.fillStyle = `rgb(${rgb555(r.palette[0]).join(",")})`; bg.fillRect(0, 0, 2, 2);
+  G3.backTex = texFrom(gl, back, G3.backTex);
+  sheet(-(3 * 3 + 8) * K, () => G3.backTex, 1.0);
+  G3.dirty = false;
+}
+/* The sprites as the 2D view shows them (snapshot, live ones, Link), one
+ * room-sized sheet per priority. */
+function spriteSheets3d(gl) {
+  const r = S.room;
+  for (let p = 0; p < 4; ++p) {
+    const cv = G3.sprCanvas && G3.sprCanvas[p] || document.createElement("canvas"); cv.width = r.width; cv.height = r.height;
+    const g = cv.getContext("2d"); g.clearRect(0, 0, cv.width, cv.height);
+    if ($("showSprites").checked) {
+      if (!S.hidden.has("spr") && S.spriteImg) {
+        if (S.live) { g.save(); g.beginPath(); g.rect(0, 0, r.width, r.height); g.rect(S.live.x, S.live.y, S.live.w, S.live.h); g.clip("evenodd"); g.drawImage(S.spriteImg[p], 0, 0); g.restore(); for (const sp of S.live.sprites) if (sp.prio === p) g.drawImage(sp.cv, sp.x, sp.y); }
+        else g.drawImage(S.spriteImg[p], 0, 0);
+      }
+      if (S.player && !S.hidden.has("link")) for (const sp of S.player) if (sp.prio === p) g.drawImage(sp.cv, sp.x, sp.y);
+    }
+    G3.sprCanvas = G3.sprCanvas || []; G3.sprCanvas[p] = cv;
+    G3.spr[p] = texFrom(gl, cv, G3.spr[p]);
+  }
+}
+const M4 = {
+  mul(a, b) { const o = new Float32Array(16); for (let i = 0; i < 4; ++i) for (let j = 0; j < 4; ++j) { let s = 0; for (let k = 0; k < 4; ++k) s += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = s; } return o; },
+  persp(fov, asp, n, f) { const t = 1 / Math.tan(fov / 2), o = new Float32Array(16); o[0] = t / asp; o[5] = t; o[10] = (f + n) / (n - f); o[11] = -1; o[14] = 2 * f * n / (n - f); return o; },
+  look(e, c, up) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], nrm = a => { const l = Math.hypot(...a) || 1; return a.map(x => x / l); };
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const zf = nrm(sub(e, c)), x = nrm(cross(up, zf)), y = cross(zf, x);
+    return new Float32Array([x[0], y[0], zf[0], 0, x[1], y[1], zf[1], 0, x[2], y[2], zf[2], 0, -dot(x, e), -dot(y, e), -dot(zf, e), 1]);
+  },
+};
+function reset3d() {
+  const r = S.room; if (!r) return;
+  G3.tx = r.width / 2; G3.ty = -r.height / 2; G3.yaw = 0; G3.pitch = 0.6;
+  const cv = $("view3d"), fov = 0.6, asp = cv.clientWidth / Math.max(1, cv.clientHeight);
+  G3.dist = Math.max(r.height / 2 / Math.tan(fov / 2), r.width / 2 / Math.tan(fov / 2) / asp) * 1.15;
+}
+function draw3d() {
+  const r = S.room, cv = $("view3d"); if (!r || !S.heights) return;
+  const gl = gl3(); if (!gl) return;
+  if (cv.width !== cv.clientWidth || cv.height !== cv.clientHeight) { cv.width = cv.clientWidth; cv.height = cv.clientHeight; }
+  const key = roomKey(r.area, r.room);
+  if (key !== G3.roomKey) { G3.roomKey = key; G3.dirty = true; reset3d(); }
+  if (G3.dirty) rebuild3d(gl);
+  spriteSheets3d(gl);
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.clearColor(0.05, 0.055, 0.067, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+  const fov = 0.6, eyeOff = [Math.sin(G3.pitch) * Math.sin(G3.yaw), -Math.sin(G3.pitch) * Math.cos(G3.yaw), Math.cos(G3.pitch)];
+  const c = [G3.tx, G3.ty, -6 * +$("vol3d").value], e = c.map((v, i) => v + eyeOff[i] * G3.dist);
+  const up = [Math.sin(G3.yaw) * 0 - Math.sin(G3.yaw), Math.cos(G3.yaw), 0];
+  const m = M4.mul(M4.persp(fov, cv.width / Math.max(1, cv.height), 10, G3.dist * 6 + 4000), M4.look(e, c, up));
+  gl.useProgram(G3.prog); gl.uniformMatrix4fv(G3.loc.m, false, m); gl.uniform1i(G3.loc.s, 0);
+  gl.enableVertexAttribArray(G3.loc.p); gl.enableVertexAttribArray(G3.loc.t);
+  for (const mesh of G3.meshes) {
+    const tex = mesh.tex(); if (!tex) continue;
+    gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1f(G3.loc.shade, mesh.shade);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.pb); gl.vertexAttribPointer(G3.loc.p, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.tb); gl.vertexAttribPointer(G3.loc.t, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, mesh.n);
+  }
+}
+function set3d(on) {
+  $("view3d").hidden = !on; $("hint3d").hidden = !on; $("view").style.visibility = on ? "hidden" : "";
+  syncToggles(); G3.dirty = true; draw();
+}
+$("view3d").addEventListener("change", () => {});
+$("vol3d").addEventListener("input", () => { G3.dirty = true; draw(); });
+{
+  const cv = $("view3d");
+  cv.addEventListener("contextmenu", ev => ev.preventDefault());
+  cv.addEventListener("mousedown", ev => {
+    ev.preventDefault();
+    const rotate = ev.button === 0 || (ev.button === 1 && (ev.ctrlKey || ev.metaKey)) || ev.button === 2;
+    G3.drag = { x: ev.clientX, y: ev.clientY, rotate, yaw: G3.yaw, pitch: G3.pitch, tx: G3.tx, ty: G3.ty };
+    cv.style.cursor = "grabbing";
+  });
+  addEventListener("mousemove", ev => {
+    const d = G3.drag; if (!d) return;
+    const dx = ev.clientX - d.x, dy = ev.clientY - d.y;
+    if (d.rotate) { G3.yaw = d.yaw - dx * 0.008; G3.pitch = Math.max(0, Math.min(1.45, d.pitch - dy * 0.006)); }
+    else { const k = G3.dist / cv.clientHeight * 1.2; G3.tx = d.tx - (dx * Math.cos(G3.yaw) + dy * Math.sin(G3.yaw)) * k; G3.ty = d.ty + (dy * Math.cos(G3.yaw) - dx * Math.sin(G3.yaw)) * k; }
+    draw();
+  });
+  addEventListener("mouseup", () => { if (G3.drag) { G3.drag = null; $("view3d").style.cursor = "grab"; } });
+  cv.addEventListener("wheel", ev => { ev.preventDefault(); G3.dist = Math.max(40, Math.min(20000, G3.dist * Math.pow(1.0015, ev.deltaY))); draw(); }, { passive: false });
+}
+
 /* ===== Link as the console draws him now (GET /player) ===== */
 function parsePlayer(buf) {
   const dv = new DataView(buf), u8 = new Uint8Array(buf);
@@ -2213,6 +2385,7 @@ $("buildBtn").onclick = () => { $("buildInput").value = ""; $("buildInput").clic
 $("buildInput").addEventListener("change", () => { const f = $("buildInput").files[0]; if (f) uploadBuild(f); });
 $("roomSearch").addEventListener("input", renderRoomTree);
 for (const id of ["showBottom", "showTop", "showSprites", "showHeat", "showGrid", "showEntities", "preview3d"]) $(id).addEventListener("change", () => { syncToggles(); draw(); });
+$("view3d").addEventListener("change", () => set3d($("view3d").checked));
 $("showSel").addEventListener("change", () => { draw(); if (S.connected) api(`/highlight?show=${$("showSel").checked ? 1 : 0}`, { method: "POST" }).catch(() => {}); });
 function onlySprites() {
   const only = !$("showBottom").checked && !$("showTop").checked && $("showSprites").checked;
