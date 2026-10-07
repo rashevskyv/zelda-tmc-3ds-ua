@@ -83,6 +83,28 @@ void Platform3DS_MarkFrameDiscontinuity(Old3DSFramePacerDiscontinuity reason) {
 
 extern void PortStereoLink_Sleep(bool asleep);
 
+/* The pulse: a thread of its own that writes a line a second to the log
+ * around sleep. The console has not been waking up; whether these lines go
+ * on while the lid is shut (the system never slept), stop and never return
+ * (the app was never resumed) or return without the main thread (the wake
+ * path is stuck) says where to look. */
+static Thread sPulseThread;
+static volatile bool sPulseStop;
+static volatile u64 sPulseUntil;
+
+static void PulseMain(void* unused) {
+    (void)unused;
+    while (!sPulseStop) {
+        svcSleepThread(1000000000ULL);
+        const u64 now = osGetTime();
+        if (now < sPulseUntil) {
+            char line[96];
+            snprintf(line, sizeof(line), "[pulse] t=%llu active=%d\n", (unsigned long long)now, aptIsActive() ? 1 : 0);
+            Platform3DS_Debug(line);
+        }
+    }
+}
+
 static void OnAptEvent(APT_HookType hook, void* parameter) {
     (void)parameter;
     switch (hook) {
@@ -97,8 +119,15 @@ static void OnAptEvent(APT_HookType hook, void* parameter) {
             PlatformGpu3DS_InvalidateBottomTarget();
             /* Every lifecycle event in the log: a console that does not wake
              * shows how far it got. */
-            Platform3DS_Debug(hook == APTHOOK_ONSLEEP ? "[apt] sleep\n" : hook == APTHOOK_ONWAKEUP ? "[apt] wakeup\n"
-                              : hook == APTHOOK_ONSUSPEND ? "[apt] suspend\n" : "[apt] restore\n");
+            {
+                char line[96];
+                snprintf(line, sizeof(line), "[apt] %s t=%llu\n",
+                         hook == APTHOOK_ONSLEEP ? "sleep" : hook == APTHOOK_ONWAKEUP ? "wakeup"
+                         : hook == APTHOOK_ONSUSPEND ? "suspend" : "restore", (unsigned long long)osGetTime());
+                Platform3DS_Debug(line);
+            }
+            if (hook == APTHOOK_ONSLEEP) sPulseUntil = osGetTime() + 180000ULL;
+            else if (hook == APTHOOK_ONWAKEUP) sPulseUntil = osGetTime() + 20000ULL;
             /* Sockets open across sleep left the console unable to wake. */
             if (hook == APTHOOK_ONSLEEP) PortStereoLink_Sleep(true);
             else if (hook == APTHOOK_ONWAKEUP) PortStereoLink_Sleep(false);
@@ -158,6 +187,7 @@ int Platform3DS_Init(void) {
     APT_CheckNew3DS(&sIsNew3DS);
     Old3DSFramePacer_Init(&sOld3DSFramePacer, SYSCLOCK_ARM11);
     RegisterAptHook();
+    sPulseThread = threadCreate(PulseMain, NULL, 8u * 1024u, 0x3a, 0, false);
     if (sIsNew3DS) {
         osSetSpeedupEnable(true);
         sSpeedupRequested = true;
@@ -198,6 +228,12 @@ int Platform3DS_Init(void) {
 
 void Platform3DS_Shutdown(void) {
     sRunning = false;
+    if (sPulseThread) {
+        sPulseStop = true;
+        threadJoin(sPulseThread, 2000000000ULL);
+        threadFree(sPulseThread);
+        sPulseThread = NULL;
+    }
     if (sAptHookRegistered) {
         aptUnhook(&sAptHookCookie);
         sAptHookRegistered = false;
