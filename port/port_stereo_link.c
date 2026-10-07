@@ -127,6 +127,10 @@ static Client sClients[MAX_CLIENTS];
 static unsigned sFrame;
 static unsigned sQuitIn;
 static bool sHighlightHidden;
+/* Asleep (lid shut): the link is down; after waking, frames to wait for the
+ * Wi-Fi before bringing it up again. */
+static volatile bool sAsleep;
+static unsigned sWakeWait;
 static void CopyOamWithoutLink(u16* out);
 extern int Port_Widescreen_GameplayViewWidth(void);
 extern int Port_Widescreen_GameplayViewHeight(void);
@@ -1745,6 +1749,13 @@ void PortStereoLink_Tick(void) {
         sNetFailed = false;
         return;
     }
+    if (sAsleep) {
+        return;
+    }
+    if (sWakeWait != 0) {
+        --sWakeWait;
+        return;
+    }
     if (sListen < 0) {
         /* Try again every few seconds: the Wi-Fi may come up later. */
         if (sFrame % 180 != 1 && sNetFailed) {
@@ -1825,6 +1836,24 @@ int PortStereoLink_UploadProgress(void) {
         }
     }
     return -1;
+}
+
+/* The console going to sleep with sockets open (and a build half sent) did
+ * not wake up again: everything network is closed before it sleeps, and the
+ * link comes back by itself a few seconds after it wakes. Main thread, from
+ * the APT hook. */
+void PortStereoLink_Sleep(bool asleep) {
+    if (asleep) {
+        if (sListen >= 0 || sNetUp) {
+            LinkLog("[link] going to sleep: link down");
+        }
+        sAsleep = true;
+        LinkStop();
+        sNetFailed = false;
+    } else if (sAsleep) {
+        sAsleep = false;
+        sWakeWait = 60 * 3;
+    }
 }
 
 void PortStereoLink_Shutdown(void) {

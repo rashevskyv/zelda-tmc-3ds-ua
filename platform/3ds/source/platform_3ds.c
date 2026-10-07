@@ -80,6 +80,8 @@ void Platform3DS_MarkFrameDiscontinuity(Old3DSFramePacerDiscontinuity reason) {
     Old3DSFramePacer_MarkDiscontinuity(&sOld3DSFramePacer, reason);
 }
 
+extern void PortStereoLink_Sleep(bool asleep);
+
 static void OnAptEvent(APT_HookType hook, void* parameter) {
     (void)parameter;
     switch (hook) {
@@ -92,6 +94,9 @@ static void OnAptEvent(APT_HookType hook, void* parameter) {
              * restore callbacks before that boundary coalesce into one resync. */
             Platform3DS_MarkFrameDiscontinuity(OLD3DS_FRAME_PACER_DISCONTINUITY_APT);
             PlatformGpu3DS_InvalidateBottomTarget();
+            /* Sockets open across sleep left the console unable to wake. */
+            if (hook == APTHOOK_ONSLEEP) PortStereoLink_Sleep(true);
+            else if (hook == APTHOOK_ONWAKEUP) PortStereoLink_Sleep(false);
             break;
         default:
             break;

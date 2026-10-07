@@ -73,6 +73,8 @@ int PortStereoLink_QuitSeconds(void);
 
 /* Close the sockets and the network: on leaving the game. */
 void PortStereoLink_Shutdown(void);
+/* Lid shut / opened: the network goes down before sleep, back after waking. */
+void PortStereoLink_Sleep(bool asleep);
 bool PortStereoLink_Enabled(void);
 /* "OFF", "WAIT", "NO WI-FI" or the console's address; any thread. */
 void PortStereoLink_Label(char* out, size_t size);

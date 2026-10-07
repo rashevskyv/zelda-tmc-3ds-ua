@@ -1249,7 +1249,12 @@ bool PlatformGpu3DS_EndBottom(const uint32_t* pixels, bool changed) {
             sStats.bottomTransferMaxTicks = transferTicks;
         ++sStats.bottomTransfers;
     }
-    const bool editor = PortStereoEditor_IsOpen();
+    /* A build coming in (or just written) shows over the editor: its picture
+     * would cover the progress bar, which then was never seen. */
+    unsigned upReceived, upTotal;
+    const char* upDone;
+    const bool uploadShown = PortStereoLink_UploadInfo(&upReceived, &upTotal, &upDone) || upDone != NULL;
+    const bool editor = PortStereoEditor_IsOpen() && !uploadShown;
     if (!sOld3DSProfile || changed || !sBottomTargetValid || editor) {
         sBottomSubtexture = (Tex3DS_SubTexture){
             .width = 320, .height = 240, .left = 0.0f, .top = 1.0f,

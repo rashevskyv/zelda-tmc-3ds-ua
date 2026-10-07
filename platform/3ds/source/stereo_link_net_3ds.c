@@ -33,8 +33,13 @@ bool PortStereoLink_NetUp(uint32_t* address) {
         }
         return false;
     }
-    /* gethostid is the address in network order, as the bytes of a word. */
+    /* gethostid is the address in network order, as the bytes of a word;
+     * 0 while the Wi-Fi is not back yet (just after waking): try later. */
     *address = (uint32_t)gethostid();
+    if (*address == 0) {
+        PortStereoLink_NetDown();
+        return false;
+    }
     return true;
 }
 
