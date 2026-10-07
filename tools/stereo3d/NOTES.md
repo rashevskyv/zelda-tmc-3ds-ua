@@ -384,3 +384,11 @@ python3 ua/measure_panel.py --ua-rom ../tloz-tmc-ua/tmc-ua-port.gba --en-rom ../
   «Редактор ПК» увімкнений типово (`stereo_link=0` в ini — вимкнути).
 - Цикл доставки збірки: `POST /quit` → `3dslink -a 192.168.50.125 file.3dsx` (лаунчер сам запустить).
 - Відновлення, якщо лаунчер зламано: FTP або GodMode9 — перейменувати `boot.3dsx.orig` → `boot.3dsx`.
+- Лаунчер (`3ds-hbmenu`, гілка `autoload`, коміт `65ad2f9`) має ще й командний сервер HTTP на порту
+  17492: `GET /ping`, `GET /list` (.3dsx у /3ds), `GET /launch?path=/3ds/x.3dsx` (з argv[0] = шлях).
+  Перевірено в Azahar (ping/list/404). На консоль ще НЕ встановлено: автоматичну заміну
+  sdmc:/boot.3dsx через `POST /launcher` заблокувала система дозволів — чекаю рішення користувача
+  (або дозвіл, або сам скопіює `D:\git\dev\zeldamc\3ds-hbmenu\boot.3dsx` у корінь картки по FTP,
+  попередньо зберігши свій як boot.3dsx.orig).
+- Цикл після встановлення: `POST /file?name=…3dsx` (гра пише й сама виходить) →
+  `curl http://192.168.50.125:17492/launch?path=/3ds/…3dsx`.
