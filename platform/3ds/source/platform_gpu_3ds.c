@@ -1091,10 +1091,12 @@ void PlatformGpu3DS_EditorCellsInfo(char* out, size_t size) {
              sEditorCellsState, sEditorCellsDraws, sEditorCellsCols, sEditorCellsRows, sEditorCellsSelected);
 }
 
-/* Texel (x, y) of a square RGBA8 texture, y down, in the GPU's tiled order:
- * 8x8 tiles from the bottom row up, Morton order inside a tile. */
+/* Texel (x, y) of an RGBA8 texture, y down, in the GPU's tiled order: 8x8
+ * tiles row by row, Morton order inside a tile. No vertical flip: with one
+ * (3D-27..30) the console showed the colour layer upside down, over only
+ * part of the picture, the selection running against the stylus. */
 static size_t TiledTexel(unsigned x, unsigned y, unsigned width, unsigned height) {
-    y = height - 1u - y;
+    (void)height;
     const unsigned m = (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) |
                        ((y & 4u) << 3);
     return ((size_t)(y >> 3) * (width >> 3) + (x >> 3)) * 64u + m;
