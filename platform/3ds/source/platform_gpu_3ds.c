@@ -1170,6 +1170,78 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
     C2D_DrawImage(image, &params, NULL);
 }
 
+/* Heights written in the cells: a 3x5 font into a texture the size of the
+ * view, white with a dark shadow so it reads over any picture. */
+enum { EDITOR_NUM_W = 512, EDITOR_NUM_H = 256 };
+static C3D_Tex sEditorNumbers;
+static bool sEditorNumbersReady;
+static const uint16_t kDigits[11] = {
+    /* 3x5, rows top to bottom, 3 bits each (bit 2 = left) */
+    075557, 026227, 071747, 071717, 055711, 074717, 074757, 071111, 075757, 075717, 000700,
+};
+
+static void PlotNumber(u32* texels, int x, int y, int value) {
+    char text[4];
+    const int n = snprintf(text, sizeof(text), "%d", value);
+    const int width = n * 4 - 1;
+    x -= width / 2;
+    y -= 2;
+    for (int pass = 0; pass < 2; ++pass) {
+        const u32 colour = pass ? 0xffffffffu : 0x000000c0u; /* RGBA: white, then shadow under */
+        const int ox = pass ? 0 : 1, oy = pass ? 0 : 1;
+        for (int k = 0; k < n; ++k) {
+            const int glyph = text[k] == '-' ? 10 : text[k] - '0';
+            for (int gy = 0; gy < 5; ++gy) {
+                for (int gx = 0; gx < 3; ++gx) {
+                    if (!((kDigits[glyph] >> ((4 - gy) * 3 + (2 - gx))) & 1)) continue;
+                    const int px = x + k * 4 + gx + ox, py = y + gy + oy;
+                    if (px < 0 || py < 0 || px >= PORT_STEREO_EDITOR_VIEW_W || py >= PORT_STEREO_EDITOR_VIEW_H) continue;
+                    texels[TiledTexel((unsigned)px, (unsigned)py, EDITOR_NUM_W, EDITOR_NUM_H)] = colour;
+                }
+            }
+        }
+    }
+}
+
+static void DrawEditorNumbers(const PortStereoEditorView* view) {
+    if (!view->numbers || !view->cells) return;
+    if (!sEditorNumbersReady) {
+        if (!C3D_TexInit(&sEditorNumbers, EDITOR_NUM_W, EDITOR_NUM_H, GPU_RGBA8)) return;
+        C3D_TexSetFilter(&sEditorNumbers, GPU_NEAREST, GPU_NEAREST);
+        sEditorNumbersReady = true;
+    }
+    u32* texels = sEditorNumbers.data;
+    /* Clear the view's part: whole 8x8 tiles, the first 320x200 texels. */
+    for (unsigned ty = 0; ty < (PORT_STEREO_EDITOR_VIEW_H + 7) / 8; ++ty)
+        memset(texels + ((size_t)ty * (EDITOR_NUM_W / 8)) * 64u, 0, (size_t)((PORT_STEREO_EDITOR_VIEW_W + 7) / 8) * 64u * 4u);
+    const float cellPx = 8.0f * view->scale;
+    if (cellPx >= 9.0f) {
+        for (int r = 0; r < view->cellRows; ++r) {
+            for (int c = 0; c < view->cellCols; ++c) {
+                const int at = r * PORT_STEREO_EDITOR_CELLS + c;
+                if (!view->cellHasNumber[at]) continue;
+                const float gx = view->cellsX + (float)c * 8.0f + 4.0f, gy = view->cellsY + (float)r * 8.0f + 4.0f;
+                const int sx = (int)((gx - view->srcX) * view->scale + view->dstX);
+                const int sy = (int)((gy - view->srcY) * view->scale + view->dstY);
+                PlotNumber(texels, sx, sy, view->cellNumber[at]);
+            }
+        }
+    }
+    C3D_TexFlush(&sEditorNumbers);
+    const Tex3DS_SubTexture sub = {
+        .width = PORT_STEREO_EDITOR_VIEW_W, .height = PORT_STEREO_EDITOR_VIEW_H,
+        .left = 0.0f, .top = 1.0f,
+        .right = (float)PORT_STEREO_EDITOR_VIEW_W / EDITOR_NUM_W,
+        .bottom = 1.0f - (float)PORT_STEREO_EDITOR_VIEW_H / EDITOR_NUM_H,
+    };
+    const C2D_Image image = { .tex = &sEditorNumbers, .subtex = &sub };
+    const C2D_DrawParams params = {
+        .pos = { .x = 0.0f, .y = 0.0f, .w = PORT_STEREO_EDITOR_VIEW_W, .h = PORT_STEREO_EDITOR_VIEW_H },
+        .center = { 0.0f, 0.0f }, .depth = 0.0f, .angle = 0.0f,
+    };
+    C2D_DrawImage(image, &params, NULL);
+}
+
 /* The 3D editor's picture, grid and selection over the top of the bottom
  * screen; its help line below is in the painted image. */
 static void DrawStereoEditor(void) {
@@ -1198,6 +1270,7 @@ static void DrawStereoEditor(void) {
         C2D_DrawImage(image, &params, NULL);
         DrawEditorCells(&view);
     }
+    DrawEditorNumbers(&view);
     for (int i = 0; i < view.rectCount; ++i) {
         const PortStereoEditorRect* r = &view.rects[i];
         C2D_DrawRectSolid(r->x, r->y, 0.0f, r->w, r->h, r->abgr);

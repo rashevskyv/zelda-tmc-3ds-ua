@@ -74,6 +74,12 @@ typedef struct PortStereoEditorView {
     uint32_t cellColour[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     bool cellEdited[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     bool cellSelected[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
+    /* Heights written in the cells (SELECT: colours, numbers, both, edits),
+     * and bottom-screen pixels per GBA pixel to place them. */
+    bool numbers;
+    float scale;
+    int8_t cellNumber[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
+    bool cellHasNumber[PORT_STEREO_EDITOR_CELLS * PORT_STEREO_EDITOR_CELLS];
     int rectCount;
     PortStereoEditorRect rects[PORT_STEREO_EDITOR_MAX_RECTS];
 } PortStereoEditorView;

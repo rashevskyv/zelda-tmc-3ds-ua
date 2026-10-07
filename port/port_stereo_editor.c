@@ -50,6 +50,14 @@ static int sTouchX0, sTouchY0;
 static unsigned sRepeat;
 /* Colour the cells by how high they stand (SELECT turns it off). */
 static bool sHeatmap = true;
+/* What SELECT cycles through: heights as colours, as numbers, both, or only
+ * which cells carry an edit. */
+enum { SHOW_COLOURS, SHOW_NUMBERS, SHOW_BOTH, SHOW_EDITS, SHOW_COUNT };
+static int sShow = SHOW_COLOURS;
+static const char* ShowName(void) {
+    static const char* const kNames[SHOW_COUNT] = { "кольори", "числа", "кольори+числа", "лише правки" };
+    return kNames[sShow];
+}
 /* A second tap on the same sprite or cell soon after the first picks all of
  * its kind: every entity like it, every cell of the same map tile. */
 static unsigned sFrame, sTapFrame;
@@ -295,7 +303,7 @@ static void PublishStatus(void) {
         snprintf(line, LINE_SIZE, "%02X:%02X  об'єкт %02X %02X %02X  %s  %+d", gRoomControls.area, gRoomControls.room,
                  sKey.kind, sKey.id, sKey.type, sKey.all ? "усі" : "цей", PortStereoEdits_KeyDelta(&sKey));
     } else {
-        snprintf(line, LINE_SIZE, "%02X:%02X", gRoomControls.area, gRoomControls.room);
+        snprintf(line, LINE_SIZE, "%02X:%02X  %s", gRoomControls.area, gRoomControls.room, ShowName());
     }
     sLineBuffer = next;
 }
@@ -489,7 +497,8 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
     }
     const bool live = InGame();
     if (down & PORT_STEREO_EDITOR_SELECT) {
-        sHeatmap = !sHeatmap;
+        sShow = (sShow + 1) % SHOW_COUNT;
+        sHeatmap = sShow != SHOW_EDITS;
     }
     if (sSel == SEL_CELLS && (sArea != gRoomControls.area || sRoom != gRoomControls.room)) {
         ResetSelection();
@@ -652,6 +661,7 @@ static bool HighlightVisit(Entity* e, void* context) {
 void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->rectCount = 0;
     view->cells = false;
+    view->numbers = false;
     view->hidden = sHelp || sList != LIST_CLOSED;
     const float s = Scale();
     const float x0 = sPanX > 0.0f ? sPanX : 0.0f, y0 = sPanY > 0.0f ? sPanY : 0.0f;
@@ -681,18 +691,24 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
     view->cellsY = (float)(roomY + row0 * 8);
     view->cellCols = Min(PORT_STEREO_EDITOR_CELLS, col1 - col0 + 1);
     view->cellRows = Min(PORT_STEREO_EDITOR_CELL_ROWS, row1 - row0 + 1);
+    view->numbers = sShow == SHOW_NUMBERS || sShow == SHOW_BOTH;
+    view->scale = s;
     for (int r = 0; r < view->cellRows; ++r) {
         for (int c = 0; c < view->cellCols; ++c) {
             const int col = col0 + c, row = row0 + r, at = r * PORT_STEREO_EDITOR_CELLS + c;
             uint32_t colour = 0;
             bool edited = false, selected = false;
+            view->cellHasNumber[at] = false;
             if (col <= col1 && row <= row1 && CellInRoom(col, row)) {
-                int h;
+                int h = 0;
                 edited = PortStereoEdits_CellEdited(gRoomControls.area, gRoomControls.room, col, row, sLayers) != 0;
                 selected = selectionHere && sSelection[row * SIDE + col];
-                if (sHeatmap && CellHeight(col, row, sLayers, &h)) {
+                const bool known = CellHeight(col, row, sLayers, &h);
+                view->cellHasNumber[at] = known && (sShow == SHOW_NUMBERS || sShow == SHOW_BOTH);
+                view->cellNumber[at] = (int8_t)(h < -99 ? -99 : h > 99 ? 99 : h);
+                if (known && (sShow == SHOW_COLOURS || sShow == SHOW_BOTH)) {
                     colour = HeightColour(h);
-                } else if (!sHeatmap && edited) {
+                } else if (sShow == SHOW_EDITS && edited) {
                     colour = Color(255, 255, 255, 90);
                 }
             }
@@ -741,7 +757,7 @@ const char* const* PortStereoEditor_HelpLines(int* count) {
         "A-кнопка - вирівняти до найнижчої",
         "X-кнопка - скинути правки виділеного",
         "L/R - масштаб, C-стік - прокрутка",
-        "Select - кольори висот чи лише правки",
+        "Select - кольори / числа / обидва / лише правки",
         "B-кнопка - зберегти й вийти; кнопка К - кімнати",
         "Колір: синій нижче, зелений-червоний вище",
     };

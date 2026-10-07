@@ -109,6 +109,10 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
 .section.collapsed h3::after { content: "▸"; }
 .section.collapsed > :not(h3) { display: none !important; }
 .section.dragging { opacity: .4; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
 .popover { position: absolute; right: 10px; top: 46px; z-index: 15; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; flex-direction: column; gap: 4px; min-width: 240px; }
 .popover.open { display: flex; }
 .depthItem.sel { background: #1b3a4b; }
@@ -155,7 +159,8 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <div id="hud"></div>
     <div id="viewBar" style="position:absolute;right:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 300px)">
       <button class="toggle" data-check="showGrid" title="Сітка клітинок 8×8 і плиток 16×16 (G)">▦ Сітка</button>
-      <button id="heatBtn" class="toggle" title="Висоти поверх картинки: кольори чи цифри, для яких шарів (C — увімкнути/вимкнути)">■ Висоти ▾</button>
+      <button id="heatBtn" class="toggle" title="Висоти поверх картинки: для яких шарів (C — увімкнути/вимкнути)">■ Висоти ▾</button>
+      <span class="seg" title="Як показувати висоти (N — по колу)"><button data-heat="colour">Кольори</button><button data-heat="number">Числа</button><button data-heat="both">Обидва</button></span>
       <button class="toggle" data-check="showSprites" title="Спрайти гри: меблі, рами дверей…">☻ Спрайти</button>
       <button class="toggle" data-check="showBottom" title="Нижній шар мапи (BG нижній): земля, підлога">▁ Нижній</button>
       <button class="toggle" data-check="showTop" title="Верхній шар мапи: крони, дахи, верх стін">▔ Верхній</button>
@@ -1103,7 +1108,7 @@ function draw() {
   const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
   const heatMode = document.querySelector("input[name=heatMode]:checked").value;
   if ($("showHeat").checked && !$("preview3d").checked) {
-    const colours = heatMode !== "number", numbers = heatMode !== "colour" && S.zoom * 8 >= 11;
+    const colours = heatMode !== "number", numbers = heatMode !== "colour" && S.zoom * 8 >= 7;
     if (colours) for (let row = vy0; row <= vy1; ++row) {
       let runStart = vx0, runColour = null;
       for (let col = vx0; col <= vx1 + 1; ++col) {
@@ -1314,6 +1319,16 @@ function stepSel(step) {
   if (!needSel()) return;
   beginChange(); stepCells(S.edits.room(S.room.area, S.room.room, true), S.layers, selectedCells(), step); roomChanged();
 }
+/* Every selected cell takes the clicked cell's height, layer by layer. */
+function copyHeightFrom(i) {
+  if (!needSel()) return;
+  beginChange();
+  const e = S.edits.room(S.room.area, S.room.room, true);
+  for (const j of selectedCells()) for (let L = 0; L < 2; ++L) if (S.layers & (1 << L)) {
+    e.flags[L][j] = CELL_HAS | CELL_SET; e.value[L][j] = clamp(cellLayerHeight(L, i), -HEIGHT_LIMIT, HEIGHT_LIMIT);
+  }
+  roomChanged();
+}
 function setSelHeight(v) {
   if (!needSel()) return;
   v = clamp(v | 0, -HEIGHT_LIMIT, HEIGHT_LIMIT); beginChange();
@@ -1503,6 +1518,12 @@ function openMenu(x, y, cell) {
     items.push([`Виділити всі цієї висоти (${label})`, "", () => applySel(sameHeightAs(heights), "replace")]);
     items.push([`Додати всі цієї висоти (${label})`, "", () => applySel(sameHeightAs(heights), "add")]);
   }
+  if (S.selCount && onCell) {
+    const hb = S.heights.bottom[cellIndex], ht = S.heights.top[cellIndex];
+    const label = S.layers === LAYER_BOTTOM ? hb : S.layers === LAYER_TOP ? ht : (hb === ht ? hb : `нижній ${hb}, верхній ${ht}`);
+    items.push(null);
+    items.push([`<b>Усім виділеним — висоту цієї клітинки (${label})</b>`, "", () => copyHeightFrom(cellIndex)]);
+  }
   if (S.selCount) {
     items.push(null);
     items.push([`Правило для всіх таких у грі: висота = ${$("setValue").value}`, "", () => ruleFromSel(true)]);
@@ -1671,6 +1692,7 @@ window.addEventListener("keydown", ev => {
   else if (k === "v") toggle("liveOn");
   else if (k === "s") toggle("showSel");
   else if (k === "o") onlySprites();
+  else if (k === "n") { const order = ["colour", "number", "both"], cur = document.querySelector("input[name=heatMode]:checked").value; setHeatMode(order[(order.indexOf(cur) + 1) % 3]); }
   else if (k === "m") toggleArea();
   else if (k === "g") toggle("showGrid"); else if (k === "c") { toggle("showHeat"); syncHeatBtn(); } else if (k === "p") toggle("preview3d");
   else if (k === "f1") { ev.preventDefault(); $("helpDlg").showModal(); }
@@ -2129,10 +2151,19 @@ $("depthColour").addEventListener("input", () => { if (!S.colourKey) return; con
 $("depthSort").addEventListener("change", () => { saveLayerPrefs(); renderDepthLayers(); });
 /* The heights menu. */
 function saveHeat() { try { localStorage.setItem("tmc-heat", JSON.stringify({ heatBottom: $("heatBottom").checked, heatTop: $("heatTop").checked, heatSprites: $("heatSprites").checked, heatFollow: $("heatFollow").checked, mode: document.querySelector("input[name=heatMode]:checked").value })); } catch (e) {} }
-function syncHeatBtn() { $("heatBtn").classList.toggle("on", $("showHeat").checked); $("heatOnMenu").checked = $("showHeat").checked; }
+function syncHeatBtn() {
+  $("heatBtn").classList.toggle("on", $("showHeat").checked); $("heatOnMenu").checked = $("showHeat").checked;
+  const mode = document.querySelector("input[name=heatMode]:checked").value;
+  for (const b of document.querySelectorAll("[data-heat]")) b.classList.toggle("on", $("showHeat").checked && b.dataset.heat === mode);
+}
+function setHeatMode(mode) {
+  document.querySelector(`input[name=heatMode][value=${mode}]`).checked = true;
+  $("showHeat").checked = true; saveHeat(); syncHeatBtn(); draw();
+}
+for (const b of document.querySelectorAll("[data-heat]")) b.addEventListener("click", () => setHeatMode(b.dataset.heat));
 $("heatBtn").addEventListener("click", ev => { ev.stopPropagation(); $("heatMenu").classList.toggle("open"); syncHeatBtn(); });
 $("heatOnMenu").addEventListener("change", () => { $("showHeat").checked = $("heatOnMenu").checked; syncHeatBtn(); draw(); });
-for (const el of document.querySelectorAll("#heatMenu input")) if (el.id !== "heatOnMenu") el.addEventListener("change", () => { saveHeat(); draw(); });
+for (const el of document.querySelectorAll("#heatMenu input")) if (el.id !== "heatOnMenu") el.addEventListener("change", () => { saveHeat(); syncHeatBtn(); draw(); });
 $("heatMenu").addEventListener("click", ev => ev.stopPropagation());
 document.addEventListener("click", () => $("heatMenu").classList.remove("open"));
 $("showHeat").addEventListener("change", syncHeatBtn);

@@ -3037,6 +3037,22 @@ void Port_SecondScreen_PaintInto(uint32_t* pixels, int width, int height, int st
             UpdateBodyText(&s, "гра на паузі, зачекайте", 20, 80, SS_TEXT_INK, true);
             FillRoundRect(&s, 20, 110, (float)s.w - 20, 130, 6, 0xff505050u);
             FillRoundRect(&s, 22, 112, 22 + ((float)s.w - 44) * part, 128, 5, 0xffe0b040u);
+            {
+                /* The percentage on the bar; "%" is a kana in the game's
+                 * font, so the sign is drawn: two dots and a slash. */
+                char pct[8];
+                snprintf(pct, sizeof(pct), "%d", (int)(part * 100.0f));
+                const int tw = (int)UpdateTextWidth(pct), x = (s.w - tw - 12) / 2;
+                UpdateSmallText(&s, pct, x, 112, SS_TEXT_NAVY);
+                const float px = (float)(x + tw + 2);
+                const uint32_t ink = 0xff602810u;
+                FillRoundRect(&s, px, 114, px + 3, 117, 1, ink);
+                FillRoundRect(&s, px + 6, 123, px + 9, 126, 1, ink);
+                for (int k = 0; k < 6; ++k) {
+                    const float sx = px + 8 - (float)k * 1.6f, sy = 113 + (float)k * 2.2f;
+                    FillRoundRect(&s, sx, sy, sx + 2, sy + 2, 0, ink);
+                }
+            }
             /* MB as tenths ("%" is a kana in the game's font). */
             snprintf(line, sizeof(line), "%u,%u з %u,%u МБ", upReceived / 1048576u, (upReceived % 1048576u) * 10u / 1048576u,
                      upTotal / 1048576u, (upTotal % 1048576u) * 10u / 1048576u);
