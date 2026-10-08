@@ -91,9 +91,31 @@ extern void PortStereoLink_Sleep(bool asleep);
 static Thread sPulseThread;
 static volatile bool sPulseStop;
 static volatile u64 sPulseUntil;
+static bool sMcuHwc;
+
+/* The notification LED (the one on the hinge, seen with the lid shut) as a
+ * second channel that needs no SD card: red while the pulse runs, off when
+ * the window ends. */
+static void PulseLed(bool on) {
+    if (!sMcuHwc) return;
+    InfoLedPattern p;
+    memset(&p, 0, sizeof(p));
+    if (on) {
+        p.delay = 0x08;
+        p.smoothing = 0x00;
+        p.loopDelay = 0x00;
+        p.blinkSpeed = 0x02;
+        for (int i = 0; i < 32; ++i) p.redPattern[i] = (i & 1) ? 0xff : 0x00;
+    } else {
+        p.loopDelay = 0xff;
+    }
+    MCUHWC_SetInfoLedPattern(&p);
+}
 
 static void PulseMain(void* unused) {
     (void)unused;
+    Platform3DS_Debug("[pulse] thread up\n");
+    bool ledOn = false;
     while (!sPulseStop) {
         svcSleepThread(1000000000ULL);
         const u64 now = osGetTime();
@@ -101,8 +123,13 @@ static void PulseMain(void* unused) {
             char line[96];
             snprintf(line, sizeof(line), "[pulse] t=%llu active=%d\n", (unsigned long long)now, aptIsActive() ? 1 : 0);
             Platform3DS_Debug(line);
+            if (!ledOn) { PulseLed(true); ledOn = true; }
+        } else if (ledOn) {
+            PulseLed(false);
+            ledOn = false;
         }
     }
+    if (ledOn) PulseLed(false);
 }
 
 static void OnAptEvent(APT_HookType hook, void* parameter) {
@@ -187,6 +214,8 @@ int Platform3DS_Init(void) {
     APT_CheckNew3DS(&sIsNew3DS);
     Old3DSFramePacer_Init(&sOld3DSFramePacer, SYSCLOCK_ARM11);
     RegisterAptHook();
+    sMcuHwc = R_SUCCEEDED(mcuHwcInit());
+    Platform3DS_Debug(sMcuHwc ? "[pulse] mcu::HWC ok\n" : "[pulse] mcu::HWC unavailable\n");
     sPulseThread = threadCreate(PulseMain, NULL, 8u * 1024u, 0x3a, 0, false);
     if (sIsNew3DS) {
         osSetSpeedupEnable(true);
@@ -234,6 +263,7 @@ void Platform3DS_Shutdown(void) {
         threadFree(sPulseThread);
         sPulseThread = NULL;
     }
+    if (sMcuHwc) { mcuHwcExit(); sMcuHwc = false; }
     if (sAptHookRegistered) {
         aptUnhook(&sAptHookCookie);
         sAptHookRegistered = false;
