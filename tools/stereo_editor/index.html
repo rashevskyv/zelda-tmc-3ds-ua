@@ -1140,7 +1140,9 @@ function draw() {
   const vx1 = Math.min(r.cols - 1, Math.ceil((view.width - S.panX) / S.zoom / 8)), vy1 = Math.min(r.rows - 1, Math.ceil((view.height - S.panY) / S.zoom / 8));
   const heatMode = document.querySelector("input[name=heatMode]:checked").value;
   if ($("showHeat").checked && !$("preview3d").checked) {
-    const colours = heatMode !== "number", numbers = heatMode !== "colour" && S.zoom * 8 >= 7;
+    /* Colours fill the cells; numbers are written in them; "both" writes the
+     * number in the height's colour and leaves the cell clear. */
+    const colours = heatMode === "colour", numbers = heatMode !== "colour" && S.zoom * 8 >= 7, tinted = heatMode === "both";
     if (colours) for (let row = vy0; row <= vy1; ++row) {
       let runStart = vx0, runColour = null;
       for (let col = vx0; col <= vx1 + 1; ++col) {
@@ -1152,12 +1154,15 @@ function draw() {
       }
     }
     if (numbers) {
-      ctx.font = `600 ${Math.min(6, 6.5)}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.lineWidth = 1.6 / S.zoom * Math.max(1, S.zoom / 3); ctx.strokeStyle = "rgba(0,0,0,.85)";
+      /* About 10 screen pixels whatever the zoom, never more than the cell. */
+      const size = Math.min(6, 10 / S.zoom);
+      ctx.font = `600 ${size}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.lineWidth = Math.max(0.3, 2 / S.zoom); ctx.strokeStyle = "rgba(0,0,0,.85)";
       for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
         const sh = shownHeight(row * SIDE + col); if (!sh) continue;
         const t = String(sh.h);
-        ctx.fillStyle = sh.h === 0 ? "rgba(255,255,255,.55)" : "#fff";
+        const c = tinted ? layerColour(sh.key, sh.h) : null;
+        ctx.fillStyle = c ? c.replace(/[\d.]+\)$/, "1)") : sh.h === 0 ? "rgba(255,255,255,.55)" : "#fff";
         ctx.strokeText(t, col * 8 + 4, row * 8 + 4.3); ctx.fillText(t, col * 8 + 4, row * 8 + 4.3);
       }
       ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";

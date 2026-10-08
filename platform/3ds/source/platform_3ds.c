@@ -95,7 +95,10 @@ static bool sMcuHwc;
 
 /* The notification LED (the one on the hinge, seen with the lid shut) as a
  * second channel that needs no SD card: red while the pulse runs, off when
- * the window ends. */
+ * the window ends. With 3D-42, which blinked it from the pulse thread right
+ * as the console went to sleep, the console woke every time, where every
+ * build before had hung; so an (invisible, "off") pattern is now written to
+ * the MCU in the sleep hook itself, and the blink is gone. */
 static void PulseLed(bool on) {
     if (!sMcuHwc) return;
     InfoLedPattern p;
@@ -115,7 +118,6 @@ static void PulseLed(bool on) {
 static void PulseMain(void* unused) {
     (void)unused;
     Platform3DS_Debug("[pulse] thread up\n");
-    bool ledOn = false;
     while (!sPulseStop) {
         svcSleepThread(1000000000ULL);
         const u64 now = osGetTime();
@@ -123,13 +125,8 @@ static void PulseMain(void* unused) {
             char line[96];
             snprintf(line, sizeof(line), "[pulse] t=%llu active=%d\n", (unsigned long long)now, aptIsActive() ? 1 : 0);
             Platform3DS_Debug(line);
-            if (!ledOn) { PulseLed(true); ledOn = true; }
-        } else if (ledOn) {
-            PulseLed(false);
-            ledOn = false;
         }
     }
-    if (ledOn) PulseLed(false);
 }
 
 static void OnAptEvent(APT_HookType hook, void* parameter) {
@@ -153,8 +150,13 @@ static void OnAptEvent(APT_HookType hook, void* parameter) {
                          : hook == APTHOOK_ONSUSPEND ? "suspend" : "restore", (unsigned long long)osGetTime());
                 Platform3DS_Debug(line);
             }
-            if (hook == APTHOOK_ONSLEEP) sPulseUntil = osGetTime() + 180000ULL;
-            else if (hook == APTHOOK_ONWAKEUP) sPulseUntil = osGetTime() + 20000ULL;
+            if (hook == APTHOOK_ONSLEEP) {
+                sPulseUntil = osGetTime() + 180000ULL;
+                PulseLed(false); /* the MCU write that seems to let the console wake */
+                Platform3DS_Debug("[pulse] led written\n");
+            } else if (hook == APTHOOK_ONWAKEUP) {
+                sPulseUntil = osGetTime() + 20000ULL;
+            }
             /* Sockets open across sleep left the console unable to wake. */
             if (hook == APTHOOK_ONSLEEP) PortStereoLink_Sleep(true);
             else if (hook == APTHOOK_ONWAKEUP) PortStereoLink_Sleep(false);
