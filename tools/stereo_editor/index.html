@@ -1157,14 +1157,17 @@ function draw() {
       /* 10 screen pixels at 1x, growing gently with the zoom (20 at 8x),
        * never more than the cell. */
       const size = Math.min(6, (10 + 1.25 * S.zoom) / S.zoom);
-      ctx.font = `600 ${size}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      /* Zoomed in (4x and up) the number sits in the cell's top-left corner,
+       * out of the way of the picture; smaller, it is centred. */
+      const corner = S.zoom >= 4, tx = corner ? 0.6 : 4, ty = corner ? 0.5 : 4.3;
+      ctx.font = `600 ${size}px system-ui`; ctx.textAlign = corner ? "left" : "center"; ctx.textBaseline = corner ? "top" : "middle";
       ctx.lineWidth = Math.max(0.3, 2 / S.zoom); ctx.strokeStyle = "rgba(0,0,0,.85)";
       for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
         const sh = shownHeight(row * SIDE + col); if (!sh) continue;
         const t = String(sh.h);
         const c = tinted ? layerColour(sh.key, sh.h) : null;
         ctx.fillStyle = c ? c.replace(/[\d.]+\)$/, "1)") : sh.h === 0 ? "rgba(255,255,255,.55)" : "#fff";
-        ctx.strokeText(t, col * 8 + 4, row * 8 + 4.3); ctx.fillText(t, col * 8 + 4, row * 8 + 4.3);
+        ctx.strokeText(t, col * 8 + tx, row * 8 + ty); ctx.fillText(t, col * 8 + tx, row * 8 + ty);
       }
       ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
     }
