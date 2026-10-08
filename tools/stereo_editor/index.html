@@ -1154,8 +1154,9 @@ function draw() {
       }
     }
     if (numbers) {
-      /* About 10 screen pixels whatever the zoom, never more than the cell. */
-      const size = Math.min(6, 10 / S.zoom);
+      /* 10 screen pixels at 1x, growing gently with the zoom (20 at 8x),
+       * never more than the cell. */
+      const size = Math.min(6, (10 + 1.25 * S.zoom) / S.zoom);
       ctx.font = `600 ${size}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.lineWidth = Math.max(0.3, 2 / S.zoom); ctx.strokeStyle = "rgba(0,0,0,.85)";
       for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
