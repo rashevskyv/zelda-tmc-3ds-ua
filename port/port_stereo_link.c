@@ -143,6 +143,7 @@ static unsigned sWakeWait;
  * the APT hook) before listening again. */
 static bool sNetResetPending;
 static void CopyOamWithoutLink(u16* out);
+static unsigned HeightsRevision(void);
 extern int Port_Widescreen_GameplayViewWidth(void);
 extern int Port_Widescreen_GameplayViewHeight(void);
 static unsigned sQuitAt;
@@ -868,7 +869,7 @@ static void AnswerStatus(Client* client) {
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
          "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u,\"editorCells\":%s,"
-         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s}",
+         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s,\"heightsRev\":%u}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -882,7 +883,7 @@ static void AnswerStatus(Client* client) {
          HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree(), cellsInfo,
          PortStereoEditor_SelectedCount(), SpriteRevision(false), SpriteRevision(true), MapRevision(),
          Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight(),
-         Port_Debug_NoclipEnabled() ? "false" : "true");
+         Port_Debug_NoclipEnabled() ? "false" : "true", HeightsRevision());
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -965,6 +966,43 @@ static void PutLayer(Buffer* b, const MapLayer* layer) {
     Put(b, layer->collisionData, sizeof(layer->collisionData));
     Put(b, layer->actTiles, sizeof(layer->actTiles));
     Put(b, layer->subTiles, sizeof(layer->subTiles));
+}
+
+/* Changes when the relief's own heights of the room do (a pit opening, a
+ * door, a layer the game swaps): the PC editor then takes them again. */
+static unsigned HeightsRevision(void) {
+    PortStereoRoomView view;
+    if (!InGame() || !Port_Stereo_RoomView(&view)) {
+        return 0;
+    }
+    uint32_t hash = 2166136261u;
+    const size_t n = (size_t)view.cols * (size_t)view.rows;
+    const s8* grids[3] = { view.autoGround, view.autoHeight, view.autoHeightTop };
+    for (int g = 0; g < 3; ++g) {
+        for (size_t i = 0; i < n; ++i) {
+            hash = (hash ^ (uint32_t)(u8)grids[g][i]) * 16777619u;
+        }
+    }
+    return (unsigned)(hash & 0x7fffffffu);
+}
+
+/* GET /heights: "TMCH", u16 cols, u16 rows, then autoGround, autoHeight,
+ * autoHeightTop as SIDE*SIDE grids, as the relief has them now. */
+static void PutGrid(Buffer* b, const void* grid, const PortStereoRoomView* view);
+static void AnswerHeights(Client* client) {
+    PortStereoRoomView view;
+    if (!InGame() || !Port_Stereo_RoomView(&view)) {
+        RespondText(client, 409, "not in a room");
+        return;
+    }
+    Buffer b = { 0 };
+    Put(&b, "TMCH", 4);
+    PutU16(&b, (unsigned)view.cols);
+    PutU16(&b, (unsigned)view.rows);
+    PutGrid(&b, view.autoGround, &view);
+    PutGrid(&b, view.autoHeight, &view);
+    PutGrid(&b, view.autoHeightTop, &view);
+    RespondBuffer(client, "application/octet-stream", &b);
 }
 
 static void PutGrid(Buffer* b, const void* grid, const PortStereoRoomView* view) {
@@ -1468,6 +1506,8 @@ static void Answer(Client* client) {
     } else if (strcmp(target, "/frame") == 0) {
         PortStereoLink_FrameRequest();
         client->frameWait = 1;
+    } else if (strcmp(target, "/heights") == 0) {
+        AnswerHeights(client);
     } else if (strcmp(target, "/editor") == 0) {
         char text[768], cells[128];
         PortStereoEditor_Geometry(text, sizeof(text));

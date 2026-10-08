@@ -17,6 +17,8 @@
  *                                    sprites leave him out); status playerRev
  *                                    changes when they do
  *   GET  /cell?col=&row=             a cell's heights as the relief uses them
+ *   GET  /heights                    the room's own heights as the relief has
+ *                                    them now (status heightsRev changes with them)
  *   GET  /selection                  the console's 3D editor selection
  *                                    ("area room", then "row col0 col1")
  *   GET  /bottom                     the bottom screen's panel image: "TMCB",

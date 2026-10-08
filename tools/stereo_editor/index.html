@@ -773,6 +773,22 @@ async function pollStatus() {
         S.selection.fill(0); S.selCount = 0; for (const i of cells) setSel(i, true); updateSelInfo(); draw();
       }
     }
+    /* The relief's own heights changed (a pit opened, a layer swapped): take
+     * them again, so the editor shows what the top screen shows. */
+    if (S.room && st.area === S.room.area && st.room === S.room.room && st.heightsRev !== undefined &&
+        st.heightsRev !== S.heightsRev && !S.heightsBusy) {
+      S.heightsBusy = true;
+      try {
+        const buf = await api("/heights", { binary: true, timeout: 4000 });
+        const dv = new DataView(buf), u8 = new Uint8Array(buf);
+        if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) === "TMCH" && S.room && st.area === S.room.area && st.room === S.room.room) {
+          const r = S.room, n = SIDE * SIDE;
+          r.autoGround = new Int8Array(buf.slice(8, 8 + n)); r.autoHeight = new Int8Array(buf.slice(8 + n, 8 + 2 * n)); r.autoTop = new Int8Array(buf.slice(8 + 2 * n, 8 + 3 * n));
+          S.heightsRev = st.heightsRev; recompute(); updateSelInfo(); draw();
+        }
+      } catch (e) {}
+      S.heightsBusy = false;
+    }
     /* The map itself changed (a rock broken, a bush cut, a door opened): take
      * the room again, at most every few seconds. */
     if (S.room && st.area === S.room.area && st.room === S.room.room && st.mapRev !== undefined) {
@@ -1107,7 +1123,7 @@ function showRoom(room) {
   S.layerImg = [renderLayer(room, 0), renderLayer(room, 1)];
   S.spriteImg = renderSprites(room);
   measureCellPixels(room); S.masked = null;
-  S.live = null; S.liveRev = -1;
+  S.live = null; S.liveRev = -1; S.heightsRev = undefined;
   if (!sameRoom) { S.selection.fill(0); S.selCount = 0; S.selEntity = null; S.undo = []; S.redo = []; S.player = null; S.playerSig = ""; fitView(); }
   $("empty").style.display = "none";
   recompute(); updateSelInfo(); renderEntities(); renderRules(); draw(); markCurrentRoomInTree();
@@ -1142,12 +1158,15 @@ function draw() {
   if ($("showHeat").checked && !$("preview3d").checked) {
     /* Colours fill the cells; numbers are written in them; "both" writes the
      * number in the height's colour and leaves the cell clear. */
-    const colours = heatMode === "colour", numbers = heatMode !== "colour" && S.zoom * 8 >= 7, tinted = heatMode === "both";
+    const colours = heatMode !== "number", numbers = heatMode !== "colour" && S.zoom * 8 >= 7, tinted = true;
+    /* "Both": the cells only lightly tinted, the numbers carry the colour. */
+    const fillAlpha = heatMode === "both" ? 0.28 : null;
     if (colours) for (let row = vy0; row <= vy1; ++row) {
       let runStart = vx0, runColour = null;
       for (let col = vx0; col <= vx1 + 1; ++col) {
         const sh = col <= vx1 ? shownHeight(row * SIDE + col) : null;
-        const colour = sh ? layerColour(sh.key, sh.h) : null;
+        let colour = sh ? layerColour(sh.key, sh.h) : null;
+        if (colour && fillAlpha !== null) colour = colour.replace(/[\d.]+\)$/, fillAlpha + ")");
         if (colour === runColour) continue;
         if (runColour) { ctx.fillStyle = runColour; ctx.fillRect(runStart * 8, row * 8, (col - runStart) * 8, 8); }
         runStart = col; runColour = colour;
@@ -1161,7 +1180,7 @@ function draw() {
        * out of the way of the picture; smaller, it is centred. */
       const corner = S.zoom >= 4, tx = corner ? 0.6 : 4, ty = corner ? 0.5 : 4.3;
       ctx.font = `600 ${size}px system-ui`; ctx.textAlign = corner ? "left" : "center"; ctx.textBaseline = corner ? "top" : "middle";
-      ctx.lineWidth = Math.max(0.3, 2 / S.zoom); ctx.strokeStyle = "rgba(0,0,0,.85)";
+      ctx.lineWidth = Math.max(0.3, 2.4 / S.zoom); ctx.strokeStyle = "rgba(0,0,0,.9)";
       for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
         const sh = shownHeight(row * SIDE + col); if (!sh) continue;
         const t = String(sh.h);
@@ -1178,7 +1197,7 @@ function draw() {
   ctx.lineWidth = 1 / S.zoom;
   for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
     const i = row * SIDE + col;
-    if (e && ((layerMask & 1 && e.flags[0][i] & CELL_HAS) || (layerMask & 2 && e.flags[1][i] & CELL_HAS))) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(col * 8, row * 8 + 0.5, 8, 1.2); }
+    if (e && ((layerMask & 1 && e.flags[0][i] & CELL_HAS) || (layerMask & 2 && e.flags[1][i] & CELL_HAS))) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(col * 8, row * 8 + 6.3, 8, 1.2); }
     if (S.heights.rule[i] & layerMask) { ctx.strokeStyle = "rgba(80,220,255,.75)"; ctx.strokeRect(col * 8 + 1, row * 8 + 1, 6, 6); }
   }
   if ($("showGrid").checked) {
