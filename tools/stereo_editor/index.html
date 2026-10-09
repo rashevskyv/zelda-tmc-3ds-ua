@@ -755,7 +755,7 @@ async function pollStatus() {
     if (st.test !== undefined && (!S.test || S.test.test !== st.test || S.test.noclip !== st.noclip)) { S.test = { test: st.test, noclip: st.noclip }; syncTest(); }
     syncScreen(st);
     /* The "Р" button on the console toggles the same frame as this box. */
-    if (st.frame !== undefined && $("showSel").checked !== st.frame) { $("showSel").checked = st.frame; draw(); }
+    if (st.frameShown !== undefined && $("showSel").checked !== st.frameShown) { $("showSel").checked = st.frameShown; draw(); }
     setChip(`${hex2(st.area)}:${hex2(st.room)}${st.live ? "" : " · 3D вимкнено"}${st.editor ? " · редактор 3D відкритий" : ""}`, st.live ? "ok" : "warn");
     if ($("follow").checked && st.inGame && !st.transition && (!S.room || st.area !== S.room.area || st.room !== S.room.room) && !S.followBusy) await loadCurrentRoom();
     else if (S.room && st.area === S.room.area && st.room === S.room.room && st.rev !== S.lastRev && !S.pushTimer && !S.dirtyRooms.size) {
