@@ -36,6 +36,10 @@
  *        drawn with (special tiles resolved)
  */
 #include "port_stereo_link.h"
+
+/* platform/3ds/source/platform_3ds.c */
+bool Platform3DS_SleepAllowed(void);
+void Platform3DS_SetSleepAllowed(bool allow);
 #include "port_stereo.h"
 #include "port_stereo_edits.h"
 #include "port_stereo_editor.h"
@@ -869,7 +873,7 @@ static void AnswerStatus(Client* client) {
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
          "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u,\"editorCells\":%s,"
-         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s,\"heightsRev\":%u,\"frameShown\":%s}",
+         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s,\"heightsRev\":%u,\"frameShown\":%s,\"sleep\":%s}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -884,7 +888,7 @@ static void AnswerStatus(Client* client) {
          PortStereoEditor_SelectedCount(), SpriteRevision(false), SpriteRevision(true), MapRevision(),
          Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight(),
          Port_Debug_NoclipEnabled() ? "false" : "true", HeightsRevision(),
-         sHighlightHidden ? "false" : "true");
+         sHighlightHidden ? "false" : "true", Platform3DS_SleepAllowed() ? "true" : "false");
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -1589,6 +1593,12 @@ static void Answer(Client* client) {
         AnswerSelect(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/file") == 0) {
         RespondText(client, 400, "upload not started");
+    } else if (post && strcmp(target, "/sleep") == 0) {
+        /* Whether the lid puts the console to sleep (it has hung on waking). */
+        if (QueryInt(query, "allow", -1) >= 0) {
+            Platform3DS_SetSleepAllowed(QueryInt(query, "allow", 0) != 0);
+        }
+        RespondText(client, 200, Platform3DS_SleepAllowed() ? "sleep allowed" : "sleep not allowed");
     } else if (post && strcmp(target, "/test") == 0) {
         if (QueryInt(query, "on", -1) >= 0) {
             SetTestMode(QueryInt(query, "on", 0) != 0);

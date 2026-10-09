@@ -100,6 +100,9 @@ void Platform3DS_SetTurboMultiplier(unsigned multiplier);
 void Platform3DS_GetRuntimeStats(Platform3DSRuntimeStats* stats);
 void Platform3DS_SetStage(uint32_t stage);
 void Platform3DS_Heartbeat(void);
+/* Whether the console may sleep when the lid closes (ini `sleep`, POST /sleep). */
+void Platform3DS_SetSleepAllowed(bool allow);
+bool Platform3DS_SleepAllowed(void);
 void Platform3DS_WatchdogPoll(void);
 bool Platform3DS_CleanDataCache(const void* addr, size_t size);
 const char* Platform3DS_CacheCleanPath(void);

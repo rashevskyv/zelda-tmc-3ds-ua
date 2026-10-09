@@ -123,6 +123,10 @@ int main(int argc, char** argv) {
 
     printf("Loading ROM and tables...\n");
     Port_Config_Load("tmc3ds.ini");
+    {
+        extern bool Port_Config_3DSSleep(void);
+        Platform3DS_SetSleepAllowed(Port_Config_3DSSleep());
+    }
     Port_LoadRom(romPath);
     Port_SecondScreenTheme_Ready();
     Port_PPU_Init(NULL);

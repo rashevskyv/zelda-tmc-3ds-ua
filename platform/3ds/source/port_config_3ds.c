@@ -131,6 +131,10 @@ static int sDebugStereoEditor;
  * the PC editor finds the console without a trip to the developer page;
  * stereo_link=0 in the ini turns it off. */
 static bool sStereoLink = true;
+/* sleep=1 lets the console sleep when the lid closes. Off by default in the
+ * 3D branch: the console has hung on waking many times (see
+ * tools/stereo3d/NOTES.md); with it off the lid only darkens the screens. */
+static bool sSleep = false;
 /* Compact Old 3DS upload surfaces (272x160 top, 320x240 bottom RGBA8 instead of
  * 512x256). Cuts the bottom clean-and-transfer from 491520 to 307200 bytes, and
  * that transfer is synchronous, so it shortens a recurring main-thread block on
@@ -233,6 +237,7 @@ static void SaveConfig(void) {
     fprintf(file, "frame_log=%u\n", sFrameLog ? 1u : 0u);
     fprintf(file, "compact_upload=%u\n", sCompactUpload ? 1u : 0u);
     fprintf(file, "app_cpu_limit=%d\n", sAppCpuLimit);
+    fprintf(file, "sleep=%u\n", sSleep ? 1u : 0u);
     fprintf(file, "gpu_static_quad=%u\n", sGpuStaticQuad ? 1u : 0u);
     fprintf(file, "bottom_rgb565=%u\n", sBottomRgb565 ? 1u : 0u);
     fprintf(file, "gpu_short_vertices=%u\n", sGpuShortVertices ? 1u : 0u);
@@ -294,6 +299,8 @@ void Port_Config_Load(const char* path) {
             else if (strcmp(key, "frame_log") == 0) sFrameLog = ParseBool(value);
             else if (strcmp(key, "stereo_link") == 0)
                 sStereoLink = atoi(value) != 0;
+            else if (strcmp(key, "sleep") == 0)
+                sSleep = atoi(value) != 0;
             else if (strcmp(key, "debug_stereo_editor") == 0)
                 sDebugStereoEditor = atoi(value);
             else if (strcmp(key, "debug_warp") == 0)
@@ -389,6 +396,10 @@ bool Port_Config_SpeakerEq(void) { return sSpeakerEq; }
 float Port_Config_SpeakerEqHz(void) { return sSpeakerEqHz; }
 bool Port_Config_FrameLog(void) { return sFrameLog; }
 /* Ini only: start the PC editor's link with the game. */
+bool Port_Config_3DSSleep(void) {
+    return sSleep;
+}
+
 bool Port_Config_3DSStereoLink(void) {
     return sStereoLink;
 }

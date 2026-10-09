@@ -90,6 +90,8 @@ extern void PortStereoLink_Sleep(bool asleep);
  * path is stuck) says where to look. */
 static Thread sPulseThread;
 static volatile bool sPulseStop;
+static volatile uint32_t sMainStage;
+static volatile uint32_t sMainHeartbeat;
 static volatile u64 sPulseUntil;
 static bool sMcuHwc;
 
@@ -115,15 +117,41 @@ static void PulseLed(bool on) {
     MCUHWC_SetInfoLedPattern(&p);
 }
 
+static volatile bool sSleepAllowed;
+
+void Platform3DS_SetSleepAllowed(bool allow) {
+    sSleepAllowed = allow;
+    aptSetSleepAllowed(allow);
+    Platform3DS_Debug(allow ? "[apt] sleep allowed\n" : "[apt] sleep not allowed: the lid only darkens the screens\n");
+}
+
+bool Platform3DS_SleepAllowed(void) {
+    return sSleepAllowed;
+}
+
+/* Once a second around a sleep: whether the app's threads run again. A jump
+ * in the clock between two rounds is the sleep itself (the threads stop), so
+ * the report starts on its own after any sleep, however long it was. */
 static void PulseMain(void* unused) {
     (void)unused;
     Platform3DS_Debug("[pulse] thread up\n");
+    u64 last = osGetTime();
     while (!sPulseStop) {
         svcSleepThread(1000000000ULL);
         const u64 now = osGetTime();
+        char line[160];
+        if (now - last > 3000ULL) {
+            snprintf(line, sizeof(line), "[pulse] clock jumped %llu ms: threads run again\n", (unsigned long long)(now - last));
+            Platform3DS_Debug(line);
+            sPulseUntil = now + 20000ULL;
+        }
+        last = now;
         if (now < sPulseUntil) {
-            char line[96];
-            snprintf(line, sizeof(line), "[pulse] t=%llu active=%d\n", (unsigned long long)now, aptIsActive() ? 1 : 0);
+            PortAudio3DSStats audio;
+            Port_Audio_3DSGetStats(&audio);
+            snprintf(line, sizeof(line), "[pulse] t=%llu active=%d stage=%lu beat=%lu audioWakes=%llu\n",
+                     (unsigned long long)now, aptIsActive() ? 1 : 0, (unsigned long)sMainStage,
+                     (unsigned long)sMainHeartbeat, (unsigned long long)audio.workerWakeups);
             Platform3DS_Debug(line);
         }
     }
@@ -212,7 +240,8 @@ int Platform3DS_Init(void) {
     consoleInit(GFX_BOTTOM, NULL);
 
     aptSetHomeAllowed(true);
-    aptSetSleepAllowed(true);
+    sSleepAllowed = true;
+    aptSetSleepAllowed(true); /* main_3ds.c applies the ini's `sleep` once it is read */
     APT_CheckNew3DS(&sIsNew3DS);
     Old3DSFramePacer_Init(&sOld3DSFramePacer, SYSCLOCK_ARM11);
     RegisterAptHook();
@@ -783,8 +812,6 @@ static void PollInput(void) {
  * hold their last contents and no quick dump can be taken, because the dump
  * runs on the main thread. These two let a thread that is still alive report
  * where the main thread stopped. */
-static volatile uint32_t sMainStage;
-static volatile uint32_t sMainHeartbeat;
 
 void Platform3DS_SetStage(uint32_t stage) { sMainStage = stage; }
 void Platform3DS_Heartbeat(void) { ++sMainHeartbeat; }
