@@ -397,6 +397,26 @@ bool Port_Config_SpeakerEq(void) { return sSpeakerEq; }
 float Port_Config_SpeakerEqHz(void) { return sSpeakerEqHz; }
 bool Port_Config_FrameLog(void) { return sFrameLog; }
 /* Ini only: start the PC editor's link with the game. */
+/* POST /ini of the PC editor's link: a few knobs that need no menu, saved
+ * to the ini; most take effect at the next start. */
+bool Port_Config_3DSSetKey(const char* key, const char* value) {
+    if (key == NULL || value == NULL || value[0] == '\0') return false;
+    const int number = (int)strtol(value, NULL, 10);
+    if (strcmp(key, "audio_core") == 0) sAudioCore = number;
+    else if (strcmp(key, "bottom_core") == 0) sBottomCore = number;
+    else if (strcmp(key, "app_cpu_limit") == 0) sAppCpuLimit = number;
+    else if (strcmp(key, "sleep") == 0) sSleep = number != 0;
+    else if (strcmp(key, "stereo_link") == 0) sStereoLink = number != 0;
+    else if (strcmp(key, "frame_log") == 0) sFrameLog = number != 0;
+    else return false;
+    SaveConfig();
+    return true;
+}
+
+const char* Port_Config_3DSPath(void) {
+    return sConfigPath;
+}
+
 bool Port_Config_3DSSleep(void) {
     return sSleep;
 }

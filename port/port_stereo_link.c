@@ -37,6 +37,10 @@
  */
 #include "port_stereo_link.h"
 
+/* platform/3ds/source/port_config_3ds.c */
+bool Port_Config_3DSSetKey(const char* key, const char* value);
+const char* Port_Config_3DSPath(void);
+
 /* platform/3ds/source/platform_3ds.c */
 bool Platform3DS_SleepAllowed(void);
 void Platform3DS_SetSleepAllowed(bool allow);
@@ -1593,6 +1597,31 @@ static void Answer(Client* client) {
         AnswerSelect(client, query, body, bodyLength);
     } else if (post && strcmp(target, "/file") == 0) {
         RespondText(client, 400, "upload not started");
+    } else if (strcmp(target, "/ini") == 0) {
+        /* GET: the ini as it is on the card. POST /ini?key=value: one knob,
+         * saved; most apply at the next start (POST /quit, then the launcher). */
+        if (post) {
+            char key[32] = { 0 }, value[32] = { 0 };
+            if (query == NULL || sscanf(query, "%31[A-Za-z0-9_]=%31[A-Za-z0-9._-]", key, value) != 2) {
+                RespondText(client, 400, "key=value expected");
+            } else if (Port_Config_3DSSetKey(key, value)) {
+                LinkLog("[link] ini: %s=%s", key, value);
+                RespondText(client, 200, "ok, saved; restart the game to apply");
+            } else {
+                RespondText(client, 400, "unknown key (audio_core, bottom_core, app_cpu_limit, sleep, stereo_link, frame_log)");
+            }
+        } else {
+            FILE* file = fopen(Port_Config_3DSPath(), "rb");
+            if (file == NULL) {
+                RespondText(client, 404, "no ini");
+            } else {
+                static char text[4096];
+                const size_t n = fread(text, 1, sizeof(text) - 1, file);
+                fclose(file);
+                text[n] = '\0';
+                RespondText(client, 200, text);
+            }
+        }
     } else if (post && strcmp(target, "/sleep") == 0) {
         /* Whether the lid puts the console to sleep (it has hung on waking). */
         if (QueryInt(query, "allow", -1) >= 0) {
