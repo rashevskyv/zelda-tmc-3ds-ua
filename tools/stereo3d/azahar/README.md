@@ -24,6 +24,7 @@ save in `sdmc/3ds/The Minish Cap 3DS/`; the game's own log is `tmc3ds.log` there
 
 - `dispmap.py grab.png` prints a per-cell disparity map; periodic textures (floor boards) can fool
   it, so confirm with `eyes.py` regions or by diffing against a capture of the same room.
+- `touch.ps1 -X 160 -Y 120 [-SideBySide]` posts the press to the OpenGL widget (from the Emerald 3DS port; untested here).
 - Touching the emulated bottom screen does not work with posted mouse messages (`click.ps1` is
   kept for a later attempt); the settings panel cannot be driven this way yet.
 - The save on the emulated SD is a new game: after the intro, ~21 rounds of mashing end in Link's

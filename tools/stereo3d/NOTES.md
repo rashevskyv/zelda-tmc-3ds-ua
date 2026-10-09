@@ -469,7 +469,8 @@ python3 ua/measure_panel.py --ua-rom ../tloz-tmc-ua/tmc-ua-port.gba --en-rom ../
   причини `POST /sleep?allow=1`, закрити кришку, відкрити — у журналі має бути `[pulse] clock jumped`
   і далі `[apt] wakeup`; якщо є пульс, але нема wakeup — APT-потік голодує/блокований.
 
-## 3D-51 (2026-10-09) — що взято з порту Pokémon Emerald 3DS (ZallaxDev, MIT)
+## 3D-51..52 (2026-10-09) — сон знову типово увімкнений; що взято з порту Pokémon Emerald 3DS (ZallaxDev, MIT)
+- 3D-51 — лише сон (нижче). 3D-52 — бюджет команд і `touch.ps1` (два пункти після цього).
 - Переглянуто `pokeemerald-3Ds-dualscreen` v0.3.0. Уже є в нас: очищення кешу через svc
   (`Platform3DS_CleanDataCache`), смуги з регістрами на кожен рядок (`ioPerLine`), атлас у linear-пам'яті
   без GX-завантажень, `C3D_FrameSplit` між очима. Їхні «площини глибини» (3 текстури на кадр замість двох

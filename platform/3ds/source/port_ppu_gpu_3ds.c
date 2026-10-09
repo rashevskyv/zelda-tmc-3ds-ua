@@ -91,6 +91,8 @@ static bool sProgramInitialized;
 static bool sReady;
 static bool sDisabled;
 static bool sPrepared;
+/* The preflight left command-buffer room for a second (right-eye) pass. */
+static bool sPreparedStereo;
 static unsigned sPreparedWidth;
 static unsigned sPreparedHeight;
 static uint32_t sFrame;
@@ -385,11 +387,15 @@ bool PortPpuGpu3DS_Preflight(const PpuGpu3DSFrameView* frame) {
     sStats.lastCommandWords = (uint32_t)commandWords;
     if (commandWords > sStats.maxCommandWords)
         sStats.maxCommandWords = (uint32_t)commandWords;
-    /* A stereo frame submits the batch list once per eye, and whether this
-     * one will is not known until it is drawn, so leave room for both. The
-     * command buffer is sized for that. */
+    /* A stereo frame submits the batch list once per eye, so leave room for
+     * both -- but only when the slider is up: with it down, doubling the
+     * budget sent heavy 2D frames to software for a pass that never ran. The
+     * draw honours this choice; a slider moved between here and the draw
+     * costs one flat frame. */
+    const bool stereoLive = sOutputTargetRight && PlatformGpu3DS_StereoDepth() > 0.0f;
+    sPreparedStereo = stereoLive;
     const size_t budgetWords =
-            sOutputTargetRight && commandWords <= SIZE_MAX / 2u
+            stereoLive && commandWords <= SIZE_MAX / 2u
                     ? commandWords * 2u
                     : commandWords;
     if (!PpuGpu3DS_CommandBudgetFits(budgetWords, gpuCmdBuf != NULL,
@@ -1046,7 +1052,7 @@ bool PortPpuGpu3DS_DrawPreparedStereo(float pxPerUnit) {
      * half-texel offsets shimmer. */
     sLeftEyeFlat = PortStereoEditor_IsOpen();
     EyeShift left = { 0 }, right = { .rightEye = true };
-    const bool stereo = pxPerUnit > 0.0f && sOutputTargetRight;
+    const bool stereo = pxPerUnit > 0.0f && sOutputTargetRight && sPreparedStereo;
     sEdgeMaskPx = 0;
     if (stereo) {
         EyeShift disparity;

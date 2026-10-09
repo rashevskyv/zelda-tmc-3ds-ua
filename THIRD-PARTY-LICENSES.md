@@ -127,3 +127,10 @@ The updater links curl 8.4.0 (curl license), mbedTLS 2.28.8 (Apache-2.0), and
 Jansson 2.14 (MIT), using devkitPro's 3DS patches. Their license texts, pinned
 source digests and build details are in `platform/3ds/update-dependencies/`.
 The Mozilla CA bundle is sourced from curl.se and retains its embedded notices.
+
+## Azahar touch script
+
+`tools/stereo3d/azahar/touch.ps1` is adapted from
+[ZallaxDev/pokeemerald-3Ds-dualscreen](https://github.com/ZallaxDev/pokeemerald-3Ds-dualscreen)
+(`3ds_port/scripts/emu/touch.ps1`), MIT, Copyright (c) 2026 ZallaxDev and
+Pokémon Emerald 3Ds Dual Screen contributors.
