@@ -144,6 +144,10 @@ static void PulseMain(void* unused) {
             snprintf(line, sizeof(line), "[pulse] clock jumped %llu ms: threads run again\n", (unsigned long long)(now - last));
             Platform3DS_Debug(line);
             sPulseUntil = now + 20000ULL;
+            PulseLed(true); /* seen with the screens dark and the card unwritten */
+        } else if (sPulseUntil != 0 && now >= sPulseUntil) {
+            PulseLed(false);
+            sPulseUntil = 0;
         }
         last = now;
         if (now < sPulseUntil) {

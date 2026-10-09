@@ -136,6 +136,8 @@ static bool sStereoLink = true;
  * (tools/stereo3d/NOTES.md), but sleep is part of the product and the knob
  * is for bisecting that, not for living without it. */
 static bool sSleep = true;
+/* audio=0 skips the DSP entirely (no ndspInit): a sleep-hang bisection knob. */
+static bool sAudio = true;
 /* Compact Old 3DS upload surfaces (272x160 top, 320x240 bottom RGBA8 instead of
  * 512x256). Cuts the bottom clean-and-transfer from 491520 to 307200 bytes, and
  * that transfer is synchronous, so it shortens a recurring main-thread block on
@@ -239,6 +241,7 @@ static void SaveConfig(void) {
     fprintf(file, "compact_upload=%u\n", sCompactUpload ? 1u : 0u);
     fprintf(file, "app_cpu_limit=%d\n", sAppCpuLimit);
     fprintf(file, "sleep=%u\n", sSleep ? 1u : 0u);
+    fprintf(file, "audio=%u\n", sAudio ? 1u : 0u);
     fprintf(file, "gpu_static_quad=%u\n", sGpuStaticQuad ? 1u : 0u);
     fprintf(file, "bottom_rgb565=%u\n", sBottomRgb565 ? 1u : 0u);
     fprintf(file, "gpu_short_vertices=%u\n", sGpuShortVertices ? 1u : 0u);
@@ -302,6 +305,8 @@ void Port_Config_Load(const char* path) {
                 sStereoLink = atoi(value) != 0;
             else if (strcmp(key, "sleep") == 0)
                 sSleep = atoi(value) != 0;
+            else if (strcmp(key, "audio") == 0)
+                sAudio = atoi(value) != 0;
             else if (strcmp(key, "debug_stereo_editor") == 0)
                 sDebugStereoEditor = atoi(value);
             else if (strcmp(key, "debug_warp") == 0)
@@ -406,6 +411,7 @@ bool Port_Config_3DSSetKey(const char* key, const char* value) {
     else if (strcmp(key, "bottom_core") == 0) sBottomCore = number;
     else if (strcmp(key, "app_cpu_limit") == 0) sAppCpuLimit = number;
     else if (strcmp(key, "sleep") == 0) sSleep = number != 0;
+    else if (strcmp(key, "audio") == 0) sAudio = number != 0;
     else if (strcmp(key, "stereo_link") == 0) sStereoLink = number != 0;
     else if (strcmp(key, "frame_log") == 0) sFrameLog = number != 0;
     else return false;
@@ -415,6 +421,10 @@ bool Port_Config_3DSSetKey(const char* key, const char* value) {
 
 const char* Port_Config_3DSPath(void) {
     return sConfigPath;
+}
+
+bool Port_Config_3DSAudio(void) {
+    return sAudio;
 }
 
 bool Port_Config_3DSSleep(void) {

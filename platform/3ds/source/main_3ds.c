@@ -130,7 +130,10 @@ int main(int argc, char** argv) {
     Port_LoadRom(romPath);
     Port_SecondScreenTheme_Ready();
     Port_PPU_Init(NULL);
-    if (!Port_Audio_Init()) {
+    extern bool Port_Config_3DSAudio(void);
+    if (!Port_Config_3DSAudio()) {
+        printf("Audio off by the ini (audio=0).\n");
+    } else if (!Port_Audio_Init()) {
         printf("Warning: audio is unavailable.\n");
     }
 

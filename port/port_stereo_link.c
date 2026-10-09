@@ -1608,7 +1608,7 @@ static void Answer(Client* client) {
                 LinkLog("[link] ini: %s=%s", key, value);
                 RespondText(client, 200, "ok, saved; restart the game to apply");
             } else {
-                RespondText(client, 400, "unknown key (audio_core, bottom_core, app_cpu_limit, sleep, stereo_link, frame_log)");
+                RespondText(client, 400, "unknown key (audio_core, bottom_core, app_cpu_limit, sleep, audio, stereo_link, frame_log)");
             }
         } else {
             FILE* file = fopen(Port_Config_3DSPath(), "rb");
