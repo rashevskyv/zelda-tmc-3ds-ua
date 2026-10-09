@@ -456,6 +456,10 @@ static bool OnHelpButton(int x, int y) {
     return x >= PORT_STEREO_EDITOR_HELP_X0 && y >= PORT_STEREO_EDITOR_HELP_Y0;
 }
 
+static bool OnFrameButton(int x, int y) {
+    return x >= PORT_STEREO_EDITOR_FRAME_X0 && x < PORT_STEREO_EDITOR_GAME_X0 - 2 && y >= PORT_STEREO_EDITOR_HELP_Y0;
+}
+
 static bool OnGameButton(int x, int y) {
     return x >= PORT_STEREO_EDITOR_GAME_X0 && x < PORT_STEREO_EDITOR_ROOMS_X0 - 2 && y >= PORT_STEREO_EDITOR_HELP_Y0;
 }
@@ -491,6 +495,13 @@ void PortStereoEditor_Input(uint32_t down, uint32_t held, bool touching, int tou
     if (sWaitRelease) {
         sWaitRelease = touching;
         touching = false;
+    }
+    /* "Р": the frame on the top screen; works in every mode of the editor. */
+    if (touching && !sTouching && OnFrameButton(touchX, touchY)) {
+        PortStereoLink_ShowHighlight(!PortStereoLink_HighlightShown());
+        sWaitRelease = true;
+        PublishStatus();
+        return;
     }
     /* "Г": the game has the buttons; only that button again takes them back. */
     if (touching && !sTouching && OnGameButton(touchX, touchY)) {
@@ -783,6 +794,7 @@ const char* const* PortStereoEditor_HelpLines(int* count) {
         "Select - кольори / числа / обидва / лише правки",
         "B-кнопка - зберегти й вийти; кнопка К - кімнати",
         "Кнопка Г - кнопки грі (меню, заставка) і назад",
+        "Кнопка Р - рамка виділення на верхньому екрані",
         "Колір: синій нижче, зелений-червоний вище",
     };
     *count = (int)(sizeof(kLines) / sizeof(kLines[0]));

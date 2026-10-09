@@ -869,7 +869,7 @@ static void AnswerStatus(Client* client) {
          "\"fade\":%s,\"starting\":%s,\"task\":%u,\"test\":%s,\"noclip\":%s,\"health\":%u,\"maxHealth\":%u,"
          "\"hudMax\":%u,\"sweep\":%s,\"sweepDone\":%d,\"sweepRoom\":%d,\"heapFree\":%u,"
          "\"inRoom\":%s,\"screen\":\"%08lx\",\"bgs\":[%s],\"linearFree\":%u,\"editorCells\":%s,"
-         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s,\"heightsRev\":%u}",
+         "\"editorSel\":%d,\"playerRev\":%u,\"spriteRev\":%u,\"mapRev\":%u,\"viewW\":%d,\"viewH\":%d,\"walls\":%s,\"heightsRev\":%u,\"frame\":%s}",
          InGame() ? "true" : "false", Port_Stereo_ReliefLive() ? "true" : "false", gRoomControls.area,
          gRoomControls.room, gRoomControls.width, gRoomControls.height, gRoomControls.origin_x,
          gRoomControls.origin_y, gRoomControls.scroll_x, gRoomControls.scroll_y,
@@ -883,7 +883,8 @@ static void AnswerStatus(Client* client) {
          HeapLeft(), Port_Stereo_InRoom() ? "true" : "false", (unsigned long)Port_Stereo_ScreenKey(), bgs, PortStereoLink_LinearFree(), cellsInfo,
          PortStereoEditor_SelectedCount(), SpriteRevision(false), SpriteRevision(true), MapRevision(),
          Port_Widescreen_GameplayViewWidth(), Port_Widescreen_GameplayViewHeight(),
-         Port_Debug_NoclipEnabled() ? "false" : "true", HeightsRevision());
+         Port_Debug_NoclipEnabled() ? "false" : "true", HeightsRevision(),
+         sHighlightHidden ? "false" : "true");
     RespondBuffer(client, "application/json", &b);
 }
 
@@ -1377,6 +1378,14 @@ static bool Highlighted(int col, int row) {
 
 /* The outline of the cells the PC editor points at, as one-pixel lines in
  * GBA screen coordinates {x, y, w, h}: runs of cell edges joined. */
+bool PortStereoLink_HighlightShown(void) {
+    return !sHighlightHidden;
+}
+
+void PortStereoLink_ShowHighlight(bool shown) {
+    sHighlightHidden = !shown;
+}
+
 int PortStereoLink_Highlight(float (*rects)[4], int max) {
     if (!sEnabled || sHighlightHidden || sHighlightCount == 0 || sHighlightRoom != ((gRoomControls.area << 8) | gRoomControls.room) ||
         !InGame()) {

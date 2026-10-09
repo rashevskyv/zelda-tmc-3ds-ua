@@ -47,10 +47,12 @@ enum {
     PORT_STEREO_EDITOR_CELL_ROWS = 32,
     /* The "?" button in the corner of the status line, the room list's
      * button left of it. */
-    PORT_STEREO_EDITOR_HELP_X0 = 284,
-    PORT_STEREO_EDITOR_ROOMS_X0 = 248,
+    PORT_STEREO_EDITOR_HELP_X0 = 290,
+    PORT_STEREO_EDITOR_ROOMS_X0 = 260,
     /* "Г": the buttons go to the game (menus, the title) until tapped again. */
-    PORT_STEREO_EDITOR_GAME_X0 = 212,
+    PORT_STEREO_EDITOR_GAME_X0 = 230,
+    /* "Р": the selection frame on the top screen, hidden or shown. */
+    PORT_STEREO_EDITOR_FRAME_X0 = 200,
     PORT_STEREO_EDITOR_HELP_Y0 = 202,
 };
 

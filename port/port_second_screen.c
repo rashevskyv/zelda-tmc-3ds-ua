@@ -2247,11 +2247,15 @@ static void PaintStereoEditor(const SSurf* s) {
         int count;
         const char* const* help = PortStereoEditor_HelpLines(&count);
         for (int i = 0; i < count; ++i) {
-            UpdateBodyText(s, help[i], 6, 4 + 18 * i, i == 0 ? SS_TEXT_RED : SS_TEXT_INK, true);
+            UpdateBodyText(s, help[i], 6, 4 + 16 * i, i == 0 ? SS_TEXT_RED : SS_TEXT_INK, true);
         }
     }
     UpdateBodyText(s, line, 6, PORT_STEREO_EDITOR_VIEW_H + 12, SS_TEXT_INK, true);
     const float u = (float)(s->w < s->h ? s->w : s->h) / 720.0f;
+    DrawMenuButton(s, PORT_STEREO_EDITOR_FRAME_X0, PORT_STEREO_EDITOR_HELP_Y0, PORT_STEREO_EDITOR_GAME_X0 - 3,
+                   s->h - 3, "", !PortStereoLink_HighlightShown(), 0, u, 2);
+    UpdateBodyText(s, "Р", (PORT_STEREO_EDITOR_FRAME_X0 + PORT_STEREO_EDITOR_GAME_X0 - 3) / 2 - 4,
+                   (PORT_STEREO_EDITOR_HELP_Y0 + s->h - 3) / 2 - 9, SS_TEXT_NAVY, true);
     DrawMenuButton(s, PORT_STEREO_EDITOR_GAME_X0, PORT_STEREO_EDITOR_HELP_Y0, PORT_STEREO_EDITOR_ROOMS_X0 - 3,
                    s->h - 3, "", PortStereoEditor_GameKeys(), 0, u, 2);
     UpdateBodyText(s, "Г", (PORT_STEREO_EDITOR_GAME_X0 + PORT_STEREO_EDITOR_ROOMS_X0 - 3) / 2 - 4,

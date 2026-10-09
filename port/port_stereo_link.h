@@ -111,6 +111,10 @@ bool PortStereoLink_SavesBlocked(void);
 /* The outline of the cells the PC editor points at, as one-pixel GBA screen
  * rectangles {x, y, w, h}; returns how many. Main thread. */
 int PortStereoLink_Highlight(float (*rects)[4], int max);
+/* The frame on the top screen: shown unless the PC editor or the console's
+ * "Р" button hid it. */
+bool PortStereoLink_HighlightShown(void);
+void PortStereoLink_ShowHighlight(bool shown);
 
 /* Platform: a copy of both eyes' game pictures, RGBA5551, asked for and
  * picked up a few frames later; false until it is there (or without the
