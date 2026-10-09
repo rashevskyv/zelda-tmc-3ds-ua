@@ -131,10 +131,11 @@ static int sDebugStereoEditor;
  * the PC editor finds the console without a trip to the developer page;
  * stereo_link=0 in the ini turns it off. */
 static bool sStereoLink = true;
-/* sleep=1 lets the console sleep when the lid closes. Off by default in the
- * 3D branch: the console has hung on waking many times (see
- * tools/stereo3d/NOTES.md); with it off the lid only darkens the screens. */
-static bool sSleep = false;
+/* sleep=0 keeps the console from sleeping when the lid closes (then the lid
+ * only darkens the screens). On by default: the console has hung on waking
+ * (tools/stereo3d/NOTES.md), but sleep is part of the product and the knob
+ * is for bisecting that, not for living without it. */
+static bool sSleep = true;
 /* Compact Old 3DS upload surfaces (272x160 top, 320x240 bottom RGBA8 instead of
  * 512x256). Cuts the bottom clean-and-transfer from 491520 to 307200 bytes, and
  * that transfer is synchronous, so it shortens a recurring main-thread block on
