@@ -102,6 +102,7 @@ static const char* const kAreaNames[] = {
 enum { AREA_NAME_COUNT = sizeof(kAreaNames) / sizeof(kAreaNames[0]) };
 
 static char sLines[2][LINE_SIZE];
+static char sHints[2][LINE_SIZE];
 static volatile int sLineBuffer;
 
 static void OpenAreas(void);
@@ -284,7 +285,18 @@ static bool SelectionRange(int layers, int* lo, int* hi) {
 static void PublishStatus(void) {
     const int next = !sLineBuffer;
     char* line = sLines[next];
+    char* hints = sHints[next];
     int lo = 0, hi = 0;
+    /* The line above the status: what the buttons do in this state. */
+    if (sGameKeys || !InGame() || !Port_Stereo_ReliefLive()) {
+        hints[0] = '\0';
+    } else if (sSel == SEL_CELLS && sSelected > 0) {
+        snprintf(hints, LINE_SIZE, "Хрест: висота / шар  A вирівняти  X скинути");
+    } else if (sSel == SEL_ENTITY) {
+        snprintf(hints, LINE_SIZE, "Хрест: глибина  Y усі такі / цей  X скинути");
+    } else {
+        snprintf(hints, LINE_SIZE, "Торкни клітинку/об'єкт  L/R масштаб  Sel вигляд");
+    }
     if (sGameKeys) {
         snprintf(line, LINE_SIZE, "Кнопки в грі. Г - назад");
     } else if (sSaveFailed) {
@@ -297,10 +309,10 @@ static void PublishStatus(void) {
         char range[24];
         snprintf(range, sizeof(range), lo == hi ? "%d" : "%d..%d", lo, hi);
         if (sSelected == (sCol1 - sCol0 + 1) * (sRow1 - sRow0 + 1)) {
-            snprintf(line, LINE_SIZE, "%02X:%02X  %d,%d-%d,%d  %s  %s", sArea, sRoom, sCol0, sRow0, sCol1, sRow1,
+            snprintf(line, LINE_SIZE, "%02X:%02X %d,%d-%d,%d %s %s", sArea, sRoom, sCol0, sRow0, sCol1, sRow1,
                      LayerName(sLayers), range);
         } else {
-            snprintf(line, LINE_SIZE, "%02X:%02X  %d кл.  %s  %s", sArea, sRoom, sSelected, LayerName(sLayers), range);
+            snprintf(line, LINE_SIZE, "%02X:%02X %d кл. %s %s", sArea, sRoom, sSelected, LayerName(sLayers), range);
         }
     } else if (sSel == SEL_ENTITY) {
         snprintf(line, LINE_SIZE, "%02X:%02X  об'єкт %02X %02X %02X  %s  %+d", gRoomControls.area, gRoomControls.room,
@@ -779,6 +791,10 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view) {
 
 void PortStereoEditor_Status(char* line, size_t size) {
     snprintf(line, size, "%s", sLines[sLineBuffer]);
+}
+
+void PortStereoEditor_Hints(char* line, size_t size) {
+    snprintf(line, size, "%s", sHints[sLineBuffer]);
 }
 
 const char* const* PortStereoEditor_HelpLines(int* count) {

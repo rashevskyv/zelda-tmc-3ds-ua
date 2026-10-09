@@ -2247,10 +2247,16 @@ static void PaintStereoEditor(const SSurf* s) {
         int count;
         const char* const* help = PortStereoEditor_HelpLines(&count);
         for (int i = 0; i < count; ++i) {
-            UpdateBodyText(s, help[i], 6, 4 + 16 * i, i == 0 ? SS_TEXT_RED : SS_TEXT_INK, true);
+            UpdateBodyText(s, help[i], 6, 4 + 15 * i, i == 0 ? SS_TEXT_RED : SS_TEXT_INK, true);
         }
     }
-    UpdateBodyText(s, line, 6, PORT_STEREO_EDITOR_VIEW_H + 12, SS_TEXT_INK, true);
+    if (!PortStereoEditor_HelpOpen()) {
+        /* The buttons' meaning right under the picture, the status beside the buttons. */
+        char hints[160];
+        PortStereoEditor_Hints(hints, sizeof(hints));
+        UpdateBodyText(s, hints, 6, PORT_STEREO_EDITOR_VIEW_H + 3, SS_TEXT_NAVY, true);
+        UpdateBodyText(s, line, 6, PORT_STEREO_EDITOR_HELP_Y0 + 4, SS_TEXT_INK, true);
+    }
     const float u = (float)(s->w < s->h ? s->w : s->h) / 720.0f;
     DrawMenuButton(s, PORT_STEREO_EDITOR_FRAME_X0, PORT_STEREO_EDITOR_HELP_Y0, PORT_STEREO_EDITOR_GAME_X0 - 3,
                    s->h - 3, "", !PortStereoLink_HighlightShown(), 0, u, 2);

@@ -1134,13 +1134,20 @@ static void DrawEditorCells(const PortStereoEditorView* view) {
         for (unsigned x = 0; x < usedW; ++x) {
             const unsigned at = (y / EDITOR_CELL_TEXELS) * PORT_STEREO_EDITOR_CELLS + x / EDITOR_CELL_TEXELS;
             u32 abgr = view->cellColour[at];
-            if (view->cellEdited[at] && y % EDITOR_CELL_TEXELS == 1) abgr = C2D_Color32(255, 255, 255, 230);
+            const unsigned cx = x / EDITOR_CELL_TEXELS, cy = y / EDITOR_CELL_TEXELS;
+            const unsigned fx = x % EDITOR_CELL_TEXELS, fy = y % EDITOR_CELL_TEXELS;
+            const unsigned n = PORT_STEREO_EDITOR_CELLS, last = EDITOR_CELL_TEXELS - 1;
+            if (view->cellEdited[at]) {
+                /* Edited cells: a white outline around each group of them. */
+                const bool edge = (fx == 0 && (cx == 0 || !view->cellEdited[at - 1])) ||
+                                  (fx == last && (cx + 1 == (unsigned)view->cellCols || !view->cellEdited[at + 1])) ||
+                                  (fy == 0 && (cy == 0 || !view->cellEdited[at - n])) ||
+                                  (fy == last && (cy + 1 == (unsigned)view->cellRows || !view->cellEdited[at + n]));
+                if (edge) abgr = C2D_Color32(255, 255, 255, 230);
+            }
             if (view->cellSelected[at]) {
                 /* The selection's outline: the edge texels of a selected cell
                  * that borders one that is not. */
-                const unsigned cx = x / EDITOR_CELL_TEXELS, cy = y / EDITOR_CELL_TEXELS;
-                const unsigned fx = x % EDITOR_CELL_TEXELS, fy = y % EDITOR_CELL_TEXELS;
-                const unsigned n = PORT_STEREO_EDITOR_CELLS, last = EDITOR_CELL_TEXELS - 1;
                 const bool edge = (fx == 0 && (cx == 0 || !view->cellSelected[at - 1])) ||
                                   (fx == last && (cx + 1 == (unsigned)view->cellCols || !view->cellSelected[at + 1])) ||
                                   (fy == 0 && (cy == 0 || !view->cellSelected[at - n])) ||

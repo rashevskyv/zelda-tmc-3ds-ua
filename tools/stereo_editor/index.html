@@ -356,7 +356,7 @@ dialog td { padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-ali
     <tr><td><kbd>Ctrl+Z</kbd> <kbd>Ctrl+Y</kbd> <kbd>Ctrl+A</kbd> <kbd>Ctrl+S</kbd> <kbd>Esc</kbd></td><td>скасувати, повторити (також Ctrl+Shift+Z), виділити все, зберегти на консолі, зняти виділення. Працюють на будь-якій розкладці.</td></tr>
   </table>
   <p><b>Правила плиток</b> — найшвидший шлях: виділіть, наприклад, дерево, і «Правило: = 2» підніме всі такі дерева в грі. Для винятків правте клітинки кімнати.</p>
-  <p><b>Кольори:</b> рівень землі прозорий, нижче — синій, вище — зелений → жовтий → помаранчевий → червоний → фіолетовий. Біла смужка — клітинка з правкою, блакитна рамка — правило плитки.</p>
+  <p><b>Кольори:</b> рівень землі прозорий, нижче — синій, вище — зелений → жовтий → помаранчевий → червоний → фіолетовий. Біла рамка — група клітинок із правками, блакитна рамка — правило плитки.</p>
   <p><b>Кілька людей:</b> кожен зберігає свій файл; «Об'єднати…» зливає чужий файл з вашим і показує спірні клітинки.</p>
   <p><b>VR (Quest 3 тощо):</b> відкрийте в браузері шолома адресу консолі, напр. <code>http://192.168.50.125:8333/</code> — сторінку віддає сама гра. WebXR потребує «безпечної» адреси: у браузері Quest відкрийте <code>chrome://flags</code>, знайдіть «Insecure origins treated as secure», впишіть туди <code>http://192.168.50.125:8333</code>, увімкніть і перезапустіть браузер. Тоді з'явиться кнопка «VR». У шоломі: правий стік вгору/вниз — ближче/далі, вліво/вправо — більше/менше; кнопка B — вийти.</p>
   <p class="muted small">Кімнати, які ви вже відкривали, зберігаються в браузері — з ними можна працювати й без консолі, а потім надіслати правки.</p>
@@ -1193,13 +1193,25 @@ function draw() {
       ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
     }
   }
-  /* Edited cells: a white bar; tile-rule cells: a cyan frame. */
+  /* Edited cells: a white outline around each group of them; tile-rule cells: a cyan frame. */
   const e = S.edits.room(r.area, r.room, false);
   const layerMask = S.layers;
+  const isEdited = (col, row) => e && col >= 0 && row >= 0 && col < SIDE && row < SIDE &&
+    ((layerMask & 1 && e.flags[0][row * SIDE + col] & CELL_HAS) || (layerMask & 2 && e.flags[1][row * SIDE + col] & CELL_HAS));
+  ctx.lineWidth = 1 / S.zoom;
+  ctx.beginPath();
+  for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
+    if (!isEdited(col, row)) continue;
+    const x = col * 8, y = row * 8;
+    if (!isEdited(col, row - 1)) { ctx.moveTo(x, y + 0.5); ctx.lineTo(x + 8, y + 0.5); }
+    if (!isEdited(col, row + 1)) { ctx.moveTo(x, y + 7.5); ctx.lineTo(x + 8, y + 7.5); }
+    if (!isEdited(col - 1, row)) { ctx.moveTo(x + 0.5, y); ctx.lineTo(x + 0.5, y + 8); }
+    if (!isEdited(col + 1, row)) { ctx.moveTo(x + 7.5, y); ctx.lineTo(x + 7.5, y + 8); }
+  }
+  ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = Math.max(1 / S.zoom, 0.6); ctx.stroke();
   ctx.lineWidth = 1 / S.zoom;
   for (let row = vy0; row <= vy1; ++row) for (let col = vx0; col <= vx1; ++col) {
     const i = row * SIDE + col;
-    if (e && ((layerMask & 1 && e.flags[0][i] & CELL_HAS) || (layerMask & 2 && e.flags[1][i] & CELL_HAS))) { ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(col * 8, row * 8 + 6.3, 8, 1.2); }
     if (S.heights.rule[i] & layerMask) { ctx.strokeStyle = "rgba(80,220,255,.75)"; ctx.strokeRect(col * 8 + 1, row * 8 + 1, 6, 6); }
   }
   if ($("showGrid").checked) {

@@ -37,7 +37,8 @@ enum {
 /* The part of the bottom screen the picture takes; the help line is below. */
 enum {
     PORT_STEREO_EDITOR_VIEW_W = 320,
-    PORT_STEREO_EDITOR_VIEW_H = 200,
+    /* ...two text lines below it: what the buttons do, then the status. */
+    PORT_STEREO_EDITOR_VIEW_H = 184,
     /* citro2d draws at most 320 objects a frame, both screens together. */
     PORT_STEREO_EDITOR_MAX_RECTS = 280,
     /* Cells a side of the colour layer: a 266-pixel WIDE frame shows up to
@@ -114,7 +115,7 @@ char* PortStereoEditor_SelectionText(size_t* length);
 /* The room list (the "К" button, which also closes it): up to PORT_STEREO_EDITOR_LIST_ROWS lines
  * to show in the picture's place, the highlighted one, and a title; 0 when
  * the list is closed. Any thread. */
-enum { PORT_STEREO_EDITOR_LIST_ROWS = 10, PORT_STEREO_EDITOR_LIST_Y0 = 22, PORT_STEREO_EDITOR_LIST_ROW_H = 17 };
+enum { PORT_STEREO_EDITOR_LIST_ROWS = 9, PORT_STEREO_EDITOR_LIST_Y0 = 22, PORT_STEREO_EDITOR_LIST_ROW_H = 17 };
 int PortStereoEditor_ListLines(char (*lines)[48], int* cursor, char* title, size_t titleSize);
 /* The list's scroll bar at the right edge, from LIST_Y0 down LIST_ROWS rows:
  * the first line shown and how many there are. Any thread. */
@@ -126,6 +127,8 @@ void PortStereoEditor_BuildView(PortStereoEditorView* view);
 
 /* The status line (room, selection, height), UTF-8; any thread. */
 void PortStereoEditor_Status(char* line, size_t size);
+/* What the buttons do right now, for the line above the status. */
+void PortStereoEditor_Hints(char* line, size_t size);
 /* Whether the help is shown, and its lines; any thread. */
 bool PortStereoEditor_HelpOpen(void);
 void PortStereoEditor_ShowHelp(void);
