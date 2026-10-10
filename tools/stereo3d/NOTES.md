@@ -517,3 +517,8 @@ python3 ua/measure_panel.py --ua-rom ../tloz-tmc-ua/tmc-ua-port.gba --en-rom ../
   devkitPro «streaming» + лічильник пробуджень (джерело в scratchpad сесії, з /opt/devkitpro/examples/3ds/
   audio/streaming). Якщо і він висне на 2–5 снах — проблема консолі/CFW/лаунчера, не гри.
   Далі, якщо контроль чистий: `app_cpu_limit=30` (у нас 80), потім без `osSetSpeedupEnable`.
+- **Контроль `ndsp-sleep-test` (приклад devkitPro) теж завис** після кількох снів. Отже, гра НЕ винна:
+  висне будь-який homebrew на цій консолі. Зависання бачили й до встановлення свого лаунчера (3D-34,
+  2026-10-07 зранку) і на звичайній 2.2. Підозрювані: Luma3DS/Rosalina (hb:ldr, спосіб запуску
+  homebrew), прошивка системи, залізо (MCU). Наступне: сон у HOME Menu без homebrew; сон у
+  системній грі/застосунку; версія Luma (`boot.firm`), оновлення Luma. Сон у грі лишаємо увімкненим.
