@@ -522,3 +522,6 @@ python3 ua/measure_panel.py --ua-rom ../tloz-tmc-ua/tmc-ua-port.gba --en-rom ../
   2026-10-07 зранку) і на звичайній 2.2. Підозрювані: Luma3DS/Rosalina (hb:ldr, спосіб запуску
   homebrew), прошивка системи, залізо (MCU). Наступне: сон у HOME Menu без homebrew; сон у
   системній грі/застосунку; версія Luma (`boot.firm`), оновлення Luma. Сон у грі лишаємо увімкненим.
+- Користувач: **зависає і в HOME Menu** → проблема в системі консолі, не в грі й не в homebrew.
+  Користувач збирається скинути систему до заводських (Format System Memory). Порада: спершу NAND-бекап
+  через GodMode9 (GM9Megascript оновлено). Після скидання — перевірити сон у HOME Menu, потім у грі.
